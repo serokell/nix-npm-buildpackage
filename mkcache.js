@@ -37,4 +37,9 @@ const pkgLockFile   = "./package-lock.json"
 const lock          = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
 const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
+process.on("unhandledRejection", error => {
+  console.log("unhandledRejection", error.message);
+  process.exit(1)
+});
+
 main(lock, nixPkgs, "./npm-cache/_cacache")

@@ -10,9 +10,12 @@ with stdenv.lib; let
       ssri      = split "-" integrity; # standard subresource integrity
       hashType  = head ssri;
       hash      = elemAt ssri 2;
+      fname     = baseNameOf resolved;
     in nameValuePair resolved (fetchurl {
       url           = resolved;
       "${hashType}" = hash;
+      name          = if hasSuffix ".tgz" fname || hasSuffix ".tar.gz" fname
+                      then fname else fname + ".tgz";
     });
 
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:

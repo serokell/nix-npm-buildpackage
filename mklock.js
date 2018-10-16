@@ -2,6 +2,7 @@ const assert        = require("assert")
 const fs            = require("fs")
 const lockfile      = require("@yarnpkg/lockfile")
 const semver        = require("semver")
+const ssri          = require("ssri")
 
 // Usage: node mklock.js package-lock.json package.json yarn.lock integrities.json
 
@@ -16,8 +17,6 @@ let integrities     = intFile ? JSON.parse(fs.readFileSync(intFile)) : {}
 
 let pkgDeps         = { ...(pkgJson.devDependencies || {}),
                         ...(pkgJson.dependencies    || {}) }
-
-const hex2base64    = s => Buffer.from(s, "hex").toString("base64")
 
 function splitNameVsn (key) {
   // foo@vsn or @foo/bar@vsn
@@ -47,7 +46,7 @@ Object.keys(yarnJson).forEach(key => {
   let dep         = yarnJson[key]
   let [name, vsn] = splitNameVsn(key)
   let [url, sha1] = dep.resolved.split("#", 2)
-  let integrity   = dep.integrity || integrities[url] || (sha1 && "sha1-" + hex2base64(sha1))
+  let integrity   = dep.integrity || integrities[url] || ssri.fromHex(sha1, "sha1").toString()
   assert(integrity, "missing integrity for " + JSON.stringify(dep))
   if (!deps[name]) deps[name] = {}
   deps[name][vsn] = { version: dep.version, resolved: url,
