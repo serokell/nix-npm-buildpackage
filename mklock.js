@@ -18,7 +18,13 @@ let integrities     = intFile ? JSON.parse(fs.readFileSync(intFile)) : {}
 let pkgDeps         = { ...(pkgJson.devDependencies || {}),
                         ...(pkgJson.dependencies    || {}) }
 
-function splitNameVsn (key) {
+function objKeys(o) {
+  let keys = Object.keys(o)
+  keys.sort()
+  return keys
+}
+
+function splitNameVsn(key) {
   // foo@vsn or @foo/bar@vsn
   if (key[0] == "@") {
     let [name, vsn] = key.slice(1).split("@")
@@ -33,16 +39,26 @@ function addDeps(obj, pkg, vsn, seen) {
   if (seen[pkgvsn]) return  // break cycle
   seen[pkgvsn] = true
   let pkgdeps           = deps[pkg][vsn]._dependencies || {}
+  obj.requires          = {}
   obj.dependencies      = {}
-  Object.keys(pkgdeps).forEach(key => {
+  objKeys(pkgdeps).forEach(key => {
     let depvsn            = pkgdeps[key]
-    obj.dependencies[key] = {...deps[key][depvsn]}
-    addDeps(obj.dependencies[key], key, depvsn, {...seen})
+    let dep               = deps[key][depvsn]
+    let dep_              = { ...dep, _dependencies: undefined }
+    obj.requires[key]     = depvsn
+    if (!depsTree[key]) {
+      depsTree[key]         = dep_
+    } else if (depsTree[key].version != dep.version) {
+      obj.dependencies[key] = dep_
+    } else {
+      return
+    }
+    addDeps(dep_, key, depvsn, { ...seen })
   })
 }
 
 let deps = {}
-Object.keys(yarnJson).forEach(key => {
+objKeys(yarnJson).forEach(key => {
   let dep         = yarnJson[key]
   let [name, vsn] = splitNameVsn(key)
   let [url, sha1] = dep.resolved.split("#", 2)
@@ -55,9 +71,9 @@ Object.keys(yarnJson).forEach(key => {
 })
 
 let depsTree = {}
-Object.keys(pkgDeps).forEach(key => {
+objKeys(pkgDeps).forEach(key => {
   let vsn       = pkgDeps[key]
-  depsTree[key] = {...deps[key][vsn]}
+  depsTree[key] = { ...deps[key][vsn], _dependencies: undefined }
   addDeps(depsTree[key], key, vsn, {})
 })
 
