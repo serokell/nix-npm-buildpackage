@@ -15,7 +15,7 @@ You can use `buildNpmPackage` to:
 { pkgs ? import <nixpkgs> {} }:
 let
   buildNpmPackage = pkgs.callPackage .../nix-npm-buildpackage {};
-  integreties = { # in case the yarn.lock file is missing sha1 hashes
+  integreties = { # in case the yarn.lock file is missing hashes
    "https://codeload.github.com/foo/bar.js/tar.gz/..." = "sha512-...";
   };
 in buildNpmPackage {
@@ -25,7 +25,7 @@ in buildNpmPackage {
 }
 ```
 
-## TODO:
+## TODO
 
 * use symlinks to avoid duplication?
 * make npm `bin` and `scripts` work?
