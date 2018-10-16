@@ -1,7 +1,11 @@
-const assert  = require('assert')
-const fs      = require('fs')
-const path    = require('path')
-const pacote  = require('pacote')
+const assert  = require("assert")
+const fs      = require("fs")
+const pacote  = require("pacote")
+const path    = require("path")
+
+// Usage: node mkcache.js npm-cache-input.json
+
+let nixPkgsFile = process.argv[2]
 
 function traverseDeps(pkg, fn) {
   Object.values(pkg.dependencies).forEach(dep => {
@@ -10,12 +14,13 @@ function traverseDeps(pkg, fn) {
   })
 }
 
-function main(lockfile, nix, cache) {
-  let hashes = new Map(Object.keys(nix).map(url => {
-    let tar = nix[url]
-    let manifest = pacote.manifest(tar, {offline: true, cache})
+async function main(lockfile, nix, cache) {
+  let promises = Object.keys(nix).map(async function (url) {
+    let tar       = nix[url]
+    let manifest  = await pacote.manifest(tar, { offline: true, cache })
     return [url, manifest._integrity]
-  }))
+  })
+  let hashes = new Map(await Promise.all(promises))
   traverseDeps(lockfile, dep => {
     if (dep.integrity.startsWith("sha1-")) {
       assert(hashes.has(dep.resolved))
@@ -24,14 +29,12 @@ function main(lockfile, nix, cache) {
       assert(dep.integrity == hashes.get(dep.resolved))
     }
   })
-  // TODO: why?
-  // fs.writeFileSync(pkgLockFile, JSON.stringify(lock, null, 4))
+  // rewrite lock file to use sha512 hashes from pacote
+  fs.writeFileSync(pkgLockFile, JSON.stringify(lock, null, 2))
 }
 
-let nixPkgsFile     = process.argv[2]
-
 const pkgLockFile   = "./package-lock.json"
-const lock          = JSON.parse(fs.readFileSync(pkgLockFile, 'utf8'))
-const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, 'utf8'))
+const lock          = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
+const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
-main(lock, nixPkgs, './npm-cache/_cacache')
+main(lock, nixPkgs, "./npm-cache/_cacache")

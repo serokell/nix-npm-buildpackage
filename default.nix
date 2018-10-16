@@ -35,28 +35,33 @@ with stdenv.lib; let
     exec bash "$@"
   '';
 in
-  args @ { src, useYarn ? false, yarnIntegreties ? {},
+  args @ { src, useYarnLock ? false, yarnIntegreties ? {},
            npmBuild ? "npm ci", npmBuildMore ? "",
            buildInputs ? [], npmFlags ? [], ... }:
     let
-      packageJson     = src + "/package.json";
-      packageLockJson = src + "/package-lock.json";
+      pkgJson         = src + "/package.json";
+      pkgLockJson     = src + "/package-lock.json";
       yarnLock        = src + "/yarn.lock";
+
       yarnIntFile     = writeText "integreties.json" (toJSON yarnIntegreties);
-      lockfile        = if useYarn then mkLockFileFromYarn else packageLockJson;
-      info            = fromJSON (readFile packageJson);
+      lockfile        = if useYarnLock then mkLockFileFromYarn else pkgLockJson;
+
+      info            = fromJSON (readFile pkgJson);
       lock            = fromJSON (readFile lockfile);
+
       name            = "${info.name}-${info.version}";
       npm             = "${nodejs-10_x}/bin/npm";
       npmAlias        = ''npm() { ${npm} "$@" $npmFlags; }'';
+      npmModules      = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
 
       mkLockFileFromYarn = runCommand "yarn-package-lock.json" {} ''
-        addToSearchPath NODE_PATH ${nodejs-10_x}/lib/node_modules/npm/node_modules
+        set -e
+        addToSearchPath NODE_PATH ${npmModules}
         addToSearchPath NODE_PATH ${yarn2nix.node_modules}
-        ${nodejs-10_x}/bin/node ${./mklock.js} $out ${packageJson} ${yarnLock} ${yarnIntFile}
+        ${nodejs-10_x}/bin/node ${./mklock.js} $out ${pkgJson} ${yarnLock} ${yarnIntFile}
       '';
     in stdenv.mkDerivation ({
-      inherit name src;
+      inherit name;
       inherit (info) version;
 
       XDG_CONFIG_DIRS     = ".";
@@ -66,14 +71,17 @@ in
       installJavascript   = true;
 
       npmCachePhase = ''
-        if [ "$useYarn" -eq "1" ]; then
-          cp ${lockfile} ${builtins.baseNameOf packageLockJson}
+        set -e
+        if [ "$useYarnLock" = "1" ]; then
+          cp ${lockfile} ${builtins.baseNameOf pkgLockJson}
+          chmod u+w ${builtins.baseNameOf pkgLockJson}
         fi
-        addToSearchPath NODE_PATH ${nodejs-10_x}/lib/node_modules/npm/node_modules
+        addToSearchPath NODE_PATH ${npmModules}
         node ${./mkcache.js} ${npmCacheInput lock}
       '';
 
       buildPhase = ''
+        set -e
         ${npmAlias}
         runHook preBuild
         ${npmBuild}
@@ -83,6 +91,7 @@ in
 
       # make a package .tgz (no way around it)
       npmPackPhase = ''
+        set -e
         ${npmAlias}
         npm prune --production
         npm pack --ignore-scripts
@@ -90,14 +99,15 @@ in
 
       # unpack the .tgz into output directory and add npm wrapper
       installPhase = ''
+        set -e
         mkdir -p $out/bin
         tar xzvf ./${name}.tgz -C $out --strip-components=1
-        if [ "$installJavascript" -eq "1" ]; then
+        if [ "$installJavascript" = "1" ]; then
           cp -R node_modules $out/
           makeWrapper ${npm} $out/bin/npm --run "cd $out"
         fi
       '';
     } // removeAttrs args [ "yarnIntegreties" ] // {
       buildInputs = [ nodejs-10_x makeWrapper ] ++ buildInputs;
-      npmFlags = [ "--cache=./npm-cache" "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ] ++ npmFlags;
+      npmFlags    = [ "--cache=./npm-cache" "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ] ++ npmFlags;
     })

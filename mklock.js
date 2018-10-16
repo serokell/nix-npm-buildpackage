@@ -1,23 +1,26 @@
-const assert        = require('assert')
-const fs            = require('fs')
+const assert        = require("assert")
+const fs            = require("fs")
 const lockfile      = require("@yarnpkg/lockfile")
-const semver        = require('semver')
+const semver        = require("semver")
+
+// Usage: node mklock.js package-lock.json package.json yarn.lock integrities.json
 
 let pkgLockFile     = process.argv[2]
-let pkgJsonFile     = process.argv[3]
+let pkgFile         = process.argv[3]
 let yarnLockFile    = process.argv[4]
 let intFile         = process.argv[5]
 
-let pkgData         = fs.readFileSync(pkgJsonFile, 'utf8')
-let yarnData        = fs.readFileSync(yarnLockFile, 'utf8')
-let pkgJson         = JSON.parse(pkgData)
-let yarnJson        = lockfile.parse(yarnData).object
+let pkgJson         = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
+let yarnJson        = lockfile.parse(fs.readFileSync(yarnLockFile, "utf8")).object
 let integrities     = intFile ? JSON.parse(fs.readFileSync(intFile)) : {}
 
 let pkgDeps         = { ...(pkgJson.devDependencies || {}),
                         ...(pkgJson.dependencies    || {}) }
 
+const hex2base64    = s => Buffer.from(s, "hex").toString("base64")
+
 function splitNameVsn (key) {
+  // foo@vsn or @foo/bar@vsn
   if (key[0] == "@") {
     let [name, vsn] = key.slice(1).split("@")
     return ["@"+name, vsn]
@@ -27,8 +30,9 @@ function splitNameVsn (key) {
 }
 
 function addDeps(obj, pkg, vsn, seen) {
-  if (seen[pkg + "@" + vsn]) return // loop
-  seen[pkg + "@" + vsn] = true
+  let pkgvsn            = pkg + "@" + vsn
+  if (seen[pkgvsn]) return  // break cycle
+  seen[pkgvsn] = true
   let pkgdeps           = deps[pkg][vsn]._dependencies || {}
   obj.dependencies      = {}
   Object.keys(pkgdeps).forEach(key => {
@@ -43,11 +47,11 @@ Object.keys(yarnJson).forEach(key => {
   let dep         = yarnJson[key]
   let [name, vsn] = splitNameVsn(key)
   let [url, sha1] = dep.resolved.split("#", 2)
-  if (!sha1 && integrities[url]) sha1 = integrities[url]
-  assert(sha1, "missing sha1 for " + JSON.stringify(dep)) // TODO
+  let integrity   = dep.integrity || integrities[url] || (sha1 && "sha1-" + hex2base64(sha1))
+  assert(integrity, "missing integrity for " + JSON.stringify(dep))
   if (!deps[name]) deps[name] = {}
   deps[name][vsn] = { version: dep.version, resolved: url,
-                      integrity: "sha1-" + sha1,
+                      integrity: integrity,
                       _dependencies: dep.dependencies }
 })
 
@@ -58,7 +62,6 @@ Object.keys(pkgDeps).forEach(key => {
   addDeps(depsTree[key], key, vsn, {})
 })
 
-// NB: dependencies flattened by yarn; should work!
 let lock = { name: pkgJson.name, version: pkgJson.version,
              lockfileVersion: 1, requires: true,
              dependencies: depsTree }
