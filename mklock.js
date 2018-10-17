@@ -35,34 +35,36 @@ function splitNameVsn(key) {
 }
 
 function addDeps(obj, pkg, vsn, seen) {
-  let pkgvsn            = pkg + "@" + vsn
+  let pkgvsn        = pkg + "@" + vsn
   if (seen[pkgvsn]) return  // break cycle
-  seen[pkgvsn] = true
-  let pkgdeps           = deps[pkg][vsn]._dependencies || {}
-  obj.requires          = {}
-  obj.dependencies      = {}
+  seen[pkgvsn]      = true
+  let pkgdeps       = deps[pkg][vsn]._dependencies || {}
+  obj.requires      = {}
+  obj.dependencies  = {}
   objKeys(pkgdeps).forEach(key => {
-    let depvsn            = pkgdeps[key]
-    let dep               = deps[key][depvsn]
-    let dep_              = { ...dep, _dependencies: undefined }
-    obj.requires[key]     = depvsn
-    if (!depsTree[key]) {
-      depsTree[key]         = dep_
-    } else if (depsTree[key].version != dep.version) {
-      obj.dependencies[key] = dep_
-    } else {
-      return
+    let depvsn        = pkgdeps[key]
+    let dep           = deps[key][depvsn]
+    let ass           = !depsTree[key] ? depsTree :
+                        depsTree[key].version != dep.version ?
+                          obj.dependencies : null
+    obj.requires[key] = depvsn
+    if (ass) {
+      let dep_ = { ...dep, _dependencies: undefined }
+      ass[key] = dep_
+      addDeps(dep_, key, depvsn, { ...seen })
     }
-    addDeps(dep_, key, depvsn, { ...seen })
   })
 }
 
-let deps = {}
+let deps      = {}
+let depsTree  = {}
+
 objKeys(yarnJson).forEach(key => {
   let dep         = yarnJson[key]
   let [name, vsn] = splitNameVsn(key)
   let [url, sha1] = dep.resolved.split("#", 2)
-  let integrity   = dep.integrity || integrities[url] || ssri.fromHex(sha1, "sha1").toString()
+  let integrity   = dep.integrity || integrities[url] ||
+                    ssri.fromHex(sha1, "sha1").toString()
   assert(integrity, "missing integrity for " + JSON.stringify(dep))
   if (!deps[name]) deps[name] = {}
   deps[name][vsn] = { version: dep.version, resolved: url,
@@ -70,11 +72,12 @@ objKeys(yarnJson).forEach(key => {
                       _dependencies: dep.dependencies }
 })
 
-let depsTree = {}
 objKeys(pkgDeps).forEach(key => {
-  let vsn       = pkgDeps[key]
-  depsTree[key] = { ...deps[key][vsn], _dependencies: undefined }
-  addDeps(depsTree[key], key, vsn, {})
+  depsTree[key] = { ...deps[key][pkgDeps[key]], _dependencies: undefined }
+})
+
+objKeys(pkgDeps).forEach(key => {
+  addDeps(depsTree[key], key, pkgDeps[key], {})
 })
 
 let lock = { name: pkgJson.name, version: pkgJson.version,
