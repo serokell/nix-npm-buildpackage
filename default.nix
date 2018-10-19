@@ -49,7 +49,7 @@ with stdenv.lib; let
   npmModules    = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
 
   yarnCmd       = "${yarn}/bin/yarn";
-  yarnAlias     = ''yarn() { ${yarnCmd} "$@" $yarnFlags; }'';
+  yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
   npmFlagsNpm   = [ "--cache=./npm-cache" ] + npmFlagsYarn;
@@ -59,6 +59,8 @@ with stdenv.lib; let
     NO_UPDATE_NOTIFIER  = true;
     installJavascript   = true;
   };
+
+  commonBuildInputs = [ nodejs-10_x makeWrapper ];  # TODO: git?
 
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
@@ -109,7 +111,7 @@ in {
 
       installPhase = untarAndWrap info.name [npmCmd];
     } // commonEnv // args // {
-      buildInputs = [ nodejs-10_x makeWrapper ] ++ buildInputs; # TODO: git?
+      buildInputs = commonBuildInputs ++ buildInputs;
       npmFlags    = npmFlagsNpm ++ npmFlags;
     });
 
@@ -164,7 +166,7 @@ in {
 
       installPhase = untarAndWrap info.name [npmCmd yarnCmd];
     } // commonEnv // removeAttrs args [ "integreties" ] // {
-      buildInputs = [ nodejs-10_x yarn ] ++ buildInputs; # TODO: git?
+      buildInputs = [ yarn ] ++ commonBuildInputs ++ buildInputs;
       yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
       npmFlags    = npmFlagsYarn ++ npmFlags;
     });
