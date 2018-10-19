@@ -1,5 +1,5 @@
 { stdenvNoCC, writeShellScriptBin, writeText, runCommand,
-  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn2nix }:
+  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn2nix, yarn }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
 
@@ -7,21 +7,21 @@ with stdenv.lib; let
 
   depFetchOwn = { resolved, integrity, ... }:
     let
-      ssri      = split "-" integrity; # standard subresource integrity
+      ssri      = split "-" integrity;
       hashType  = head ssri;
       hash      = elemAt ssri 2;
       fname     = baseNameOf resolved;
-    in nameValuePair resolved (fetchurl {
-      url           = resolved;
-      "${hashType}" = hash;
-      name          = if hasSuffix ".tgz" fname || hasSuffix ".tar.gz" fname
-                      then fname else fname + ".tgz";
-    });
+      name      = if hasSuffix ".tgz" fname || hasSuffix ".tar.gz" fname
+                  then fname else fname + ".tgz";
+    in nameValuePair resolved {
+      name = fname;
+      path = fetchurl { inherit name; url = resolved; "${hashType}" = hash; };
+    };
 
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
     (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
 
-  npmCacheInput = lock: writeText "npm-cache-input.json" (toJSON (listToAttrs (depToFetch lock)));
+  cacheInput = out: in: writeText out (toJSON (listToAttrs (depToFetch in)));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -37,35 +37,30 @@ with stdenv.lib; let
     fi
     exec bash "$@"
   '';
-in
-  args @ { src, useYarnLock ? false, yarnIntegreties ? {},
-           npmBuild ? "npm ci", npmBuildMore ? "",
-           buildInputs ? [], npmFlags ? [], ... }:
+
+  npmInfo = src: rec {
+    pkgJson = src + "/package.json";
+    info    = fromJSON (readFile pkgJson);
+    name    = "${info.name}-${info.version}";
+  };
+
+  npm         = "${nodejs-10_x}/bin/npm";
+  npmAlias    = ''npm() { ${npm} "$@" $npmFlags; }'';
+  npmModules  = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
+
+  yarn        = "${yarn}/bin/yarn";
+  yarnAlias   = ''yarn() { ${yarn} "$@" $yarnFlags; }'';
+in {
+  buildNpmPackage = args @ {
+    src, npmBuild ? "npm ci", npmBuildMore ? "",
+    buildInputs ? [], npmFlags ? [], ...
+  }:
     let
-      pkgJson         = src + "/package.json";
-      pkgLockJson     = src + "/package-lock.json";
-      yarnLock        = src + "/yarn.lock";
-
-      yarnIntFile     = writeText "integreties.json" (toJSON yarnIntegreties);
-      lockfile        = if useYarnLock then mkLockFileFromYarn else pkgLockJson;
-
-      info            = fromJSON (readFile pkgJson);
-      lock            = fromJSON (readFile lockfile);
-
-      name            = "${info.name}-${info.version}";
-      npm             = "${nodejs-10_x}/bin/npm";
-      npmAlias        = ''npm() { ${npm} "$@" $npmFlags; }'';
-      npmModules      = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
-
-      mkLockFileFromYarn = runCommand "yarn-package-lock.json" {} ''
-        set -e
-        addToSearchPath NODE_PATH ${npmModules}
-        addToSearchPath NODE_PATH ${yarn2nix.node_modules}
-        ${nodejs-10_x}/bin/node ${./mklock.js} $out ${pkgJson} ${yarnLock} ${yarnIntFile}
-      '';
+      info  = npmInfo src;
+      lock  = fromJSON (readFile (src + "/package-lock.json"));
     in stdenv.mkDerivation ({
-      inherit name;
-      inherit (info) version;
+      inherit (info) name;
+      inherit (info.info) version;
 
       XDG_CONFIG_DIRS     = ".";
       NO_UPDATE_NOTIFIER  = true;
@@ -74,12 +69,8 @@ in
       installJavascript   = true;
 
       npmCachePhase = ''
-        if [ "$useYarnLock" = "1" ]; then
-          cp ${lockfile} ${builtins.baseNameOf pkgLockJson}
-          chmod u+w ${builtins.baseNameOf pkgLockJson}
-        fi
-        addToSearchPath NODE_PATH ${npmModules}
-        node ${./mkcache.js} ${npmCacheInput lock}
+        addToSearchPath NODE_PATH ${npmModules}   # pacote
+        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
       '';
 
       buildPhase = ''
@@ -98,15 +89,70 @@ in
       '';
 
       # unpack the .tgz into output directory and add npm wrapper
+      # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
       installPhase = ''
         mkdir -p $out/bin
-        tar xzvf ./${name}.tgz -C $out --strip-components=1
+        tar xzvf ./${info.name}.tgz -C $out --strip-components=1
         if [ "$installJavascript" = "1" ]; then
           cp -R node_modules $out/
           makeWrapper ${npm} $out/bin/npm --run "cd $out"
         fi
       '';
-    } // removeAttrs args [ "yarnIntegreties" ] // {
-      buildInputs = [ nodejs-10_x makeWrapper ] ++ buildInputs;
+    } // args // {
+      buildInputs = [ nodejs-10_x makeWrapper ] ++ buildInputs; # TODO: git?
       npmFlags    = [ "--cache=./npm-cache" "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ] ++ npmFlags;
-    })
+    });
+
+  buildYarnPackage = args @ {
+    src, yarnBuild ? "yarn", yarnBuildMore ? "",
+    buildInputs ? [], yarnFlags ? [], npmFlags ? [], ...
+  }:
+    let
+      info        = npmInfo src;
+      deps        = { dependencies = fromJSON (readFile yarnJson); };
+      yarnIntFile = writeText "integreties.json" {};  # TODO
+      yarnJson    = runCommand "yarn.json" {} ''
+        set -e
+        addToSearchPath NODE_PATH ${yarn2nix.node_modules}  # @yarnpkg/lockfile
+        ${nodejs-10_x}/bin/node ${./mkyarnjson.js} ${yarnIntFile} > $out
+      '';
+    in stdenv.mkDerivation ({
+      inherit (info) name;
+      inherit (info.info) version;
+
+      # ... TODO ...
+
+      preBuildPhases = [ "yarnConfigPhase" "yarnCachePhase" ];
+
+      # TODO
+      yarnConfigPhase = ''
+        { echo yarn-offline-mirror \"$PWD/yarn-cache\"
+          echo script-shell \"${shellWrap}/bin/npm-shell-wrap.sh\"
+        } >> .yarnrc
+      '';
+
+      yarnCachePhase = ''
+        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps}
+      '';
+
+      # ... TODO ...
+
+      buildPhase = ''
+        ${yarnAlias}
+        runHook preBuild
+        ${yarnBuild}
+        ${yarnBuildMore}
+        runHook postBuild
+      '';
+
+      # ... TODO ...
+
+      # TODO
+      installPhase = ''
+      '';
+    } // args // {
+      buildInputs = [ nodejs-10_x yarn ] ++ buildInputs;        # TODO: git?
+      yarnFlags   = [ "--offline" ] ++ yarnFlags;
+      # TODO: npmFlags
+    });
+}
