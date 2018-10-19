@@ -21,7 +21,7 @@ with stdenv.lib; let
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
     (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
 
-  cacheInput = out: in: writeText out (toJSON (listToAttrs (depToFetch in)));
+  cacheInput = oFile: iFile: writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -44,12 +44,12 @@ with stdenv.lib; let
     name    = "${info.name}-${info.version}";
   };
 
-  npm         = "${nodejs-10_x}/bin/npm";
-  npmAlias    = ''npm() { ${npm} "$@" $npmFlags; }'';
+  npmCmd      = "${nodejs-10_x}/bin/npm";
+  npmAlias    = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
   npmModules  = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
 
-  yarn        = "${yarn}/bin/yarn";
-  yarnAlias   = ''yarn() { ${yarn} "$@" $yarnFlags; }'';
+  yarnCmd     = "${yarn}/bin/yarn";
+  yarnAlias   = ''yarn() { ${yarnCmd} "$@" $yarnFlags; }'';
 in {
   buildNpmPackage = args @ {
     src, npmBuild ? "npm ci", npmBuildMore ? "",
@@ -95,7 +95,7 @@ in {
         tar xzvf ./${info.name}.tgz -C $out --strip-components=1
         if [ "$installJavascript" = "1" ]; then
           cp -R node_modules $out/
-          makeWrapper ${npm} $out/bin/npm --run "cd $out"
+          makeWrapper ${npmCmd} $out/bin/npm --run "cd $out"
         fi
       '';
     } // args // {
@@ -104,17 +104,19 @@ in {
     });
 
   buildYarnPackage = args @ {
-    src, yarnBuild ? "yarn", yarnBuildMore ? "",
+    src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? {},
     buildInputs ? [], yarnFlags ? [], npmFlags ? [], ...
   }:
     let
       info        = npmInfo src;
       deps        = { dependencies = fromJSON (readFile yarnJson); };
-      yarnIntFile = writeText "integreties.json" {};  # TODO
+      yarnIntFile = writeText "integreties.json" (toJSON integreties);
+      yarnLock    = src + "/yarn.lock";
       yarnJson    = runCommand "yarn.json" {} ''
         set -e
+        addToSearchPath NODE_PATH ${npmModules}             # ssri
         addToSearchPath NODE_PATH ${yarn2nix.node_modules}  # @yarnpkg/lockfile
-        ${nodejs-10_x}/bin/node ${./mkyarnjson.js} ${yarnIntFile} > $out
+        ${nodejs-10_x}/bin/node ${./mkyarnjson.js} ${yarnLock} ${yarnIntFile} > $out
       '';
     in stdenv.mkDerivation ({
       inherit (info) name;
@@ -132,6 +134,7 @@ in {
       '';
 
       yarnCachePhase = ''
+        mkdir -p yarn-cache
         node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps}
       '';
 
@@ -150,7 +153,7 @@ in {
       # TODO
       installPhase = ''
       '';
-    } // args // {
+    } // removeAttrs args [ "integreties" ] // {
       buildInputs = [ nodejs-10_x yarn ] ++ buildInputs;        # TODO: git?
       yarnFlags   = [ "--offline" ] ++ yarnFlags;
       # TODO: npmFlags
