@@ -13,14 +13,14 @@ You can use `buildNpmPackage`/`buildYarnPackage` to:
 ```nix
 { pkgs ? import <nixpkgs> {} }:
 let
-  { buildNpmPackage, buildYarnPackage } = pkgs.callPackage .../nix-npm-buildpackage {};
+  bp = pkgs.callPackage .../nix-npm-buildpackage {};
 in ...
 ```
 
 ```nix
-buildNpmPackage { src = ./.; }
+bp.buildNpmPackage { src = ./.; }
 ```
 
 ```nix
-buildYarnPackage { src = ./.; }   # TODO
+bp.buildYarnPackage { src = ./.; }  # TODO
 ```
