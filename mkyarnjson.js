@@ -35,7 +35,7 @@ Object.keys(yarnJson).forEach(key => {
   const integrity   = dep.integrity || integrities[url] ||
                       (sha1 && ssri.fromHex(sha1, "sha1").toString())
   assert(integrity, "missing integrity for " + JSON.stringify(dep))
-  deps[key]         = { resolved: url, integrity: integrity }
+  deps[key]         = { name, resolved: url, integrity }
 })
 
 console.log(JSON.stringify(deps, null, 2))

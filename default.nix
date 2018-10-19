@@ -5,17 +5,17 @@ with stdenv.lib; let
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
-  depFetchOwn = { resolved, integrity, ... }:
+  depFetchOwn = { resolved, integrity, name ? null, ... }:
     let
       ssri      = split "-" integrity;
       hashType  = head ssri;
       hash      = elemAt ssri 2;
-      fname     = baseNameOf resolved;
-      name      = if hasSuffix ".tgz" fname || hasSuffix ".tar.gz" fname
-                  then fname else fname + ".tgz";
+      bname     = baseNameOf resolved;
+      fname     = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname
+                  then bname else bname + ".tgz";
     in nameValuePair resolved {
-      name = fname;
-      path = fetchurl { inherit name; url = resolved; "${hashType}" = hash; };
+      inherit name bname;
+      path = fetchurl { name = fname; url = resolved; "${hashType}" = hash; };
     };
 
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
@@ -150,8 +150,9 @@ in {
 
       # ... TODO ...
 
-      # TODO
       installPhase = ''
+        mkdir -p $out/bin
+        # TODO
       '';
     } // removeAttrs args [ "integreties" ] // {
       buildInputs = [ nodejs-10_x yarn ] ++ buildInputs;        # TODO: git?
