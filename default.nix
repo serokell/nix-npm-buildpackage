@@ -74,7 +74,6 @@ in
       installJavascript   = true;
 
       npmCachePhase = ''
-        set -e
         if [ "$useYarnLock" = "1" ]; then
           cp ${lockfile} ${builtins.baseNameOf pkgLockJson}
           chmod u+w ${builtins.baseNameOf pkgLockJson}
@@ -84,7 +83,6 @@ in
       '';
 
       buildPhase = ''
-        set -e
         ${npmAlias}
         runHook preBuild
         ${npmBuild}
@@ -94,7 +92,6 @@ in
 
       # make a package .tgz (no way around it)
       npmPackPhase = ''
-        set -e
         ${npmAlias}
         npm prune --production
         npm pack --ignore-scripts
@@ -102,7 +99,6 @@ in
 
       # unpack the .tgz into output directory and add npm wrapper
       installPhase = ''
-        set -e
         mkdir -p $out/bin
         tar xzvf ./${name}.tgz -C $out --strip-components=1
         if [ "$installJavascript" = "1" ]; then

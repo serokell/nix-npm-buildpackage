@@ -3,9 +3,14 @@ const fs      = require("fs")
 const pacote  = require("pacote")
 const path    = require("path")
 
-// Usage: node mkcache.js npm-cache-input.json
+const USAGE   = "node mkcache.js npm-cache-input.json"
 
-let nixPkgsFile = process.argv[2]
+if (process.argv.length != USAGE.split(/\s+/).length) {
+  console.error("Usage:", USAGE)
+  process.exit(1)
+}
+
+const [nixPkgsFile] = process.argv.slice(2)
 
 function traverseDeps(pkg, fn) {
   Object.values(pkg.dependencies).forEach(dep => {
@@ -15,12 +20,12 @@ function traverseDeps(pkg, fn) {
 }
 
 async function main(lockfile, nix, cache) {
-  let promises = Object.keys(nix).map(async function (url) {
-    let tar       = nix[url]
-    let manifest  = await pacote.manifest(tar, { offline: true, cache })
+  const promises = Object.keys(nix).map(async function (url) {
+    const tar       = nix[url]
+    const manifest  = await pacote.manifest(tar, { offline: true, cache })
     return [url, manifest._integrity]
   })
-  let hashes = new Map(await Promise.all(promises))
+  const hashes = new Map(await Promise.all(promises))
   traverseDeps(lockfile, dep => {
     if (dep.integrity.startsWith("sha1-")) {
       assert(hashes.has(dep.resolved))
@@ -33,9 +38,9 @@ async function main(lockfile, nix, cache) {
   fs.writeFileSync(pkgLockFile, JSON.stringify(lock, null, 2))
 }
 
-const pkgLockFile   = "./package-lock.json"
-const lock          = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
-const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
+const pkgLockFile = "./package-lock.json"
+const lock        = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
+const nixPkgs     = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
 process.on("unhandledRejection", error => {
   console.log("unhandledRejection", error.message);
