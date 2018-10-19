@@ -44,12 +44,34 @@ with stdenv.lib; let
     name    = "${info.name}-${info.version}";
   };
 
-  npmCmd      = "${nodejs-10_x}/bin/npm";
-  npmAlias    = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
-  npmModules  = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
+  npmCmd        = "${nodejs-10_x}/bin/npm";
+  npmAlias      = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
+  npmModules    = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
 
-  yarnCmd     = "${yarn}/bin/yarn";
-  yarnAlias   = ''yarn() { ${yarnCmd} "$@" $yarnFlags; }'';
+  yarnCmd       = "${yarn}/bin/yarn";
+  yarnAlias     = ''yarn() { ${yarnCmd} "$@" $yarnFlags; }'';
+
+  npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
+  npmFlagsNpm   = [ "--cache=./npm-cache" ] + npmFlagsYarn;
+
+  commonEnv = {
+    XDG_CONFIG_DIRS     = ".";
+    NO_UPDATE_NOTIFIER  = true;
+    installJavascript   = true;
+  };
+
+  # unpack the .tgz into output directory and add npm wrapper
+  # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
+  untarAndWrap = name: cmds: ''
+    mkdir -p $out/bin
+    tar xzvf ./${name}.tgz -C $out --strip-components=1
+    if [ "$installJavascript" = "1" ]; then
+      cp -R node_modules $out/
+      ${ concatStringsSep ";" (map (cmd:
+        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out"''
+      ) cmds) }
+    fi
+  '';
 in {
   buildNpmPackage = args @ {
     src, npmBuild ? "npm ci", npmBuildMore ? "",
@@ -62,11 +84,8 @@ in {
       inherit (info) name;
       inherit (info.info) version;
 
-      XDG_CONFIG_DIRS     = ".";
-      NO_UPDATE_NOTIFIER  = true;
-      preBuildPhases      = [ "npmCachePhase" ];
-      preInstallPhases    = [ "npmPackPhase" ];
-      installJavascript   = true;
+      preBuildPhases    = [ "npmCachePhase" ];
+      preInstallPhases  = [ "npmPackPhase" ];
 
       npmCachePhase = ''
         addToSearchPath NODE_PATH ${npmModules}   # pacote
@@ -88,19 +107,10 @@ in {
         npm pack --ignore-scripts
       '';
 
-      # unpack the .tgz into output directory and add npm wrapper
-      # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
-      installPhase = ''
-        mkdir -p $out/bin
-        tar xzvf ./${info.name}.tgz -C $out --strip-components=1
-        if [ "$installJavascript" = "1" ]; then
-          cp -R node_modules $out/
-          makeWrapper ${npmCmd} $out/bin/npm --run "cd $out"
-        fi
-      '';
-    } // args // {
+      installPhase = untarAndWrap info.name [npmCmd];
+    } // commonEnv // args // {
       buildInputs = [ nodejs-10_x makeWrapper ] ++ buildInputs; # TODO: git?
-      npmFlags    = [ "--cache=./npm-cache" "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ] ++ npmFlags;
+      npmFlags    = npmFlagsNpm ++ npmFlags;
     });
 
   buildYarnPackage = args @ {
@@ -122,9 +132,8 @@ in {
       inherit (info) name;
       inherit (info.info) version;
 
-      # ... TODO ...
-
-      preBuildPhases = [ "yarnConfigPhase" "yarnCachePhase" ];
+      preBuildPhases    = [ "yarnConfigPhase" "yarnCachePhase" ];
+      preInstallPhases  = [ "yarnPackPhase" ];
 
       # TODO
       yarnConfigPhase = ''
@@ -138,9 +147,8 @@ in {
         node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps}
       '';
 
-      # ... TODO ...
-
       buildPhase = ''
+        ${npmAlias}
         ${yarnAlias}
         runHook preBuild
         ${yarnBuild}
@@ -148,15 +156,16 @@ in {
         runHook postBuild
       '';
 
-      # ... TODO ...
-
-      installPhase = ''
-        mkdir -p $out/bin
-        # TODO
+      # TODO: install --production?
+      yarnPackPhase = ''
+        ${yarnAlias}
+        yarn pack --ignore-scripts --filename ${info.name}.tgz
       '';
-    } // removeAttrs args [ "integreties" ] // {
-      buildInputs = [ nodejs-10_x yarn ] ++ buildInputs;        # TODO: git?
-      yarnFlags   = [ "--offline" ] ++ yarnFlags;
-      # TODO: npmFlags
+
+      installPhase = untarAndWrap info.name [npmCmd yarnCmd];
+    } // commonEnv // removeAttrs args [ "integreties" ] // {
+      buildInputs = [ nodejs-10_x yarn ] ++ buildInputs; # TODO: git?
+      yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
+      npmFlags    = npmFlagsYarn ++ npmFlags;
     });
 }

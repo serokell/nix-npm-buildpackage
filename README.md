@@ -22,5 +22,5 @@ bp.buildNpmPackage { src = ./.; }
 ```
 
 ```nix
-bp.buildYarnPackage { src = ./.; }  # TODO
+bp.buildYarnPackage { src = ./.; }
 ```
