@@ -3,6 +3,9 @@
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
 
+  _nodejs = nodejs-10_x;
+  _yarn   = yarn.override { nodejs = _nodejs; };
+
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
   depFetchOwn = { resolved, integrity, name ? null, ... }:
@@ -44,11 +47,11 @@ with stdenv.lib; let
     name    = "${info.name}-${info.version}";
   };
 
-  npmCmd        = "${nodejs-10_x}/bin/npm";
+  npmCmd        = "${_nodejs}/bin/npm";
   npmAlias      = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
-  npmModules    = "${nodejs-10_x}/lib/node_modules/npm/node_modules";
+  npmModules    = "${_nodejs}/lib/node_modules/npm/node_modules";
 
-  yarnCmd       = "${yarn}/bin/yarn";
+  yarnCmd       = "${_yarn}/bin/yarn";
   yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
@@ -60,7 +63,7 @@ with stdenv.lib; let
     installJavascript   = true;
   };
 
-  commonBuildInputs = [ nodejs-10_x makeWrapper ];  # TODO: git?
+  commonBuildInputs = [ _nodejs makeWrapper ];  # TODO: git?
 
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
@@ -128,7 +131,7 @@ in {
         set -e
         addToSearchPath NODE_PATH ${npmModules}             # ssri
         addToSearchPath NODE_PATH ${yarn2nix.node_modules}  # @yarnpkg/lockfile
-        ${nodejs-10_x}/bin/node ${./mkyarnjson.js} ${yarnLock} ${yarnIntFile} > $out
+        ${_nodejs}/bin/node ${./mkyarnjson.js} ${yarnLock} ${yarnIntFile} > $out
       '';
     in stdenv.mkDerivation ({
       inherit (info) name;
@@ -139,9 +142,12 @@ in {
 
       # TODO
       yarnConfigPhase = ''
-        { echo yarn-offline-mirror \"$PWD/yarn-cache\"
-          echo script-shell \"${shellWrap}/bin/npm-shell-wrap.sh\"
-        } >> .yarnrc
+        cat <<-END >> .yarnrc
+
+        	yarn-offline-mirror "$PWD/yarn-cache"
+        	script-shell "${shellWrap}/bin/npm-shell-wrap.sh"
+        	nodedir "${_nodejs}"
+        END
       '';
 
       yarnCachePhase = ''
@@ -166,7 +172,7 @@ in {
 
       installPhase = untarAndWrap info.name [npmCmd yarnCmd];
     } // commonEnv // removeAttrs args [ "integreties" ] // {
-      buildInputs = [ yarn ] ++ commonBuildInputs ++ buildInputs;
+      buildInputs = [ _yarn ] ++ commonBuildInputs ++ buildInputs;
       yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
       npmFlags    = npmFlagsYarn ++ npmFlags;
     });
