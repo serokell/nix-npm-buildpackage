@@ -5,7 +5,7 @@
 
 { pkgs ? import <nixpkgs> {} }:
 let
-  bp = pkgs.callPackage ./default.nix { inherit pkgs; };
+  bp = pkgs.callPackage ./default.nix {};
 in
   import (fetchGit {
     url = "https://github.com/obfusk/nix-vault-with-ui.git";
