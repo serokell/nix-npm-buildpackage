@@ -55,7 +55,7 @@ with stdenv.lib; let
   yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
-  npmFlagsNpm   = [ "--cache=./npm-cache" "--nodedir=${_nodejs}" ] + npmFlagsYarn;
+  npmFlagsNpm   = [ "--cache=./npm-cache" "--nodedir=${_nodejs}" ] ++ npmFlagsYarn;
 
   commonEnv = {
     XDG_CONFIG_DIRS     = ".";
