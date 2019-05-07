@@ -1,4 +1,4 @@
-{ stdenvNoCC, writeShellScriptBin, writeText, runCommand,
+{ stdenvNoCC, writeShellScriptBin, writeText, runCommand, writeScriptBin,
   stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn2nix, yarn }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
@@ -47,11 +47,33 @@ with stdenv.lib; let
     name    = "${info.name}-${info.version}";
   };
 
+  yarnWrapper = writeScriptBin "yarn" ''
+    #!${_nodejs}/bin/node
+    const { promisify } = require('util')
+    const child_process = require('child_process');
+    const exec = promisify(child_process.exec)
+    const { existsSync } = require('fs')
+    async function getYarn() {
+        const yarn = "${_yarn}/bin/yarn"
+        if (existsSync(`''${yarn}.js`)) return `''${yarn}.js`
+        return yarn
+    }
+    global.experimentalYarnHooks = {
+        async linkStep(cb) {
+            const res = await cb()
+            console.log("patching shebangs")
+            await exec("${patchShebangs}/bin/patchShebangs.sh node_modules")
+            return res
+        }
+    }
+    getYarn().then(require)
+  '';
+
   npmCmd        = "${_nodejs}/bin/npm";
   npmAlias      = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
   npmModules    = "${_nodejs}/lib/node_modules/npm/node_modules";
 
-  yarnCmd       = "${_yarn}/bin/yarn";
+  yarnCmd       = "${yarnWrapper}/bin/yarn";
   yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
@@ -77,6 +99,12 @@ with stdenv.lib; let
       ) cmds) }
     fi
   '';
+
+  yarnpkg-lockfile = fetchurl {
+    name = "_yarnpkg_lockfile___lockfile_1.1.0.tgz";
+    url  = "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz";
+    sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
+  };
 in {
   buildNpmPackage = args @ {
     src, npmBuild ? "npm ci", npmBuildMore ? "",
@@ -129,8 +157,10 @@ in {
       yarnLock    = src + "/yarn.lock";
       yarnJson    = runCommand "yarn.json" {} ''
         set -e
+        mkdir -p node_modules/@yarnpkg/lockfile
+        tar -C $_ --strip-components=1 -xf ${yarnpkg-lockfile}
+        addToSearchPath NODE_PATH $PWD/node_modules         # @yarnpkg/lockfile
         addToSearchPath NODE_PATH ${npmModules}             # ssri
-        addToSearchPath NODE_PATH ${yarn2nix.node_modules}  # @yarnpkg/lockfile
         ${_nodejs}/bin/node ${./mkyarnjson.js} ${yarnLock} ${yarnIntFile} > $out
       '';
     in stdenv.mkDerivation ({
@@ -143,9 +173,7 @@ in {
       # TODO
       yarnConfigPhase = ''
         cat <<-END >> .yarnrc
-
         	yarn-offline-mirror "$PWD/yarn-cache"
-        	script-shell "${shellWrap}/bin/npm-shell-wrap.sh"
         	nodedir "${_nodejs}"
         END
       '';
