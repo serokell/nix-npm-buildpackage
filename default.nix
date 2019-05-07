@@ -90,10 +90,16 @@ with stdenv.lib; let
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
   untarAndWrap = name: cmds: ''
+    shopt -s nullglob
     mkdir -p $out/bin
     tar xzvf ./${name}.tgz -C $out --strip-components=1
     if [ "$installJavascript" = "1" ]; then
       cp -R node_modules $out/
+      patchShebangs $out/bin
+      for i in $out/bin/*.js; do
+        makeWrapper ${_nodejs}/bin/node $out/bin/$(basename $i .js) \
+          --add-flags $i --run "cd $out"
+      done
       ${ concatStringsSep ";" (map (cmd:
         ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out"''
       ) cmds) }
