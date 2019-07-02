@@ -34,10 +34,9 @@ with stdenv.lib; let
 
   shellWrap = writeShellScriptBin "npm-shell-wrap.sh" ''
     set -e
-    if [ ! -e .shebangs_patched ]; then
+    pushd ''${PWD%%node_modules*}/node_modules
       ${patchShebangs}/bin/patchShebangs.sh .
-      touch .shebangs_patched
-    fi
+    popd
     exec bash "$@"
   '';
 
