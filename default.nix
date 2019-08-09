@@ -146,7 +146,11 @@ in {
         npm pack --ignore-scripts
       '';
 
-      installPhase = untarAndWrap info.name [npmCmd];
+      installPhase = ''
+        runHook preInstall
+        ${untarAndWrap info.name [npmCmd]}
+        runHook postInstall
+      '';
     } // commonEnv // args // {
       buildInputs = commonBuildInputs ++ buildInputs;
       npmFlags    = npmFlagsNpm ++ npmFlags;
@@ -204,7 +208,11 @@ in {
         yarn pack --ignore-scripts --filename ${info.name}.tgz
       '';
 
-      installPhase = untarAndWrap info.name [npmCmd yarnCmd];
+      installPhase = ''
+        runHook preInstall
+        ${untarAndWrap info.name [npmCmd yarnCmd]}
+        runHook postInstall
+      '';
     } // commonEnv // removeAttrs args [ "integreties" ] // {
       buildInputs = [ _yarn ] ++ commonBuildInputs ++ buildInputs;
       yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
