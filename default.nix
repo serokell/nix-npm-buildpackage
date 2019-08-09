@@ -100,7 +100,7 @@ with stdenv.lib; let
           --add-flags $i --run "cd $out"
       done
       ${ concatStringsSep ";" (map (cmd:
-        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out"''
+        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out" --prefix PATH : ${stdenvNoCC.shellPackage}/bin''
       ) cmds) }
     fi
   '';
