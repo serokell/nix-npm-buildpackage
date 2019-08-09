@@ -142,6 +142,7 @@ in {
       npmPackPhase = ''
         ${npmAlias}
         npm prune --production
+        rm -rf ./npm-cache
         npm pack --ignore-scripts
       '';
 
