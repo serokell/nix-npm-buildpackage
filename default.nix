@@ -1,5 +1,5 @@
 { stdenvNoCC, writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn2nix, yarn }:
+  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
 
