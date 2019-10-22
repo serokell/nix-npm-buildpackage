@@ -1,4 +1,4 @@
-{ stdenvNoCC, writeShellScriptBin, writeText, runCommand, writeScriptBin,
+{ writeShellScriptBin, writeText, runCommand, writeScriptBin,
   stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
@@ -28,7 +28,7 @@ with stdenv.lib; let
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
-    source ${stdenvNoCC}/setup
+    source ${stdenv}/setup
     patchShebangs "$@"
   '';
 
@@ -100,7 +100,7 @@ with stdenv.lib; let
           --add-flags $i --run "cd $out"
       done
       ${ concatStringsSep ";" (map (cmd:
-        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out" --prefix PATH : ${stdenvNoCC.shellPackage}/bin''
+        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out" --prefix PATH : ${stdenv.shellPackage}/bin''
       ) cmds) }
     fi
   '';
