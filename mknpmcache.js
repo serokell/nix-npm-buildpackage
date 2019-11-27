@@ -38,7 +38,7 @@ async function main(lockfile, nix, cache) {
     }
   })
   // rewrite lock file to use sha512 hashes from pacote
-  fs.writeFileSync(pkgLockFile, JSON.stringify(lock, null, 2))
+  fs.writeFileSync(pkgLockFile, JSON.stringify(lockfile, null, 2))
 }
 
 process.on("unhandledRejection", error => {
