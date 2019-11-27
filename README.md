@@ -22,7 +22,7 @@ in ...
 ```
 
 ```nix
-bp.buildNpmPackage { src = ./.; }
+bp.buildNpmPackage { src = ./.; npmBuild = "npm run build"; }
 ```
 
 ```nix
