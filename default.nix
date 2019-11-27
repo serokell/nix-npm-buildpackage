@@ -110,50 +110,73 @@ with stdenv.lib; let
     url  = "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz";
     sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
   };
-in {
+in rec {
+  mkNodeModules = { packageJson, packageLockJson, extraEnvVars ? {} }:
+    let
+      info = fromJSON (readFile packageJson);
+      lock = fromJSON (readFile packageLockJson);
+    in stdenv.mkDerivation ({
+      name = "${info.name}-${info.version}-node-modules";
+
+      buildInputs = [ _nodejs ];
+
+      npmFlags = npmFlagsNpm;
+
+      buildCommand = ''
+        cp ${packageJson} ./package.json
+        cp ${packageLockJson} ./package-lock.json
+
+        echo 'building npm cache'
+        chmod u+w ./package-lock.json
+        NODE_PATH=${npmModules} node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
+
+        echo 'building node_modules'
+        npm $npmFlags ci
+        patchShebangs ./node_modules/
+
+        mkdir $out
+        mv ./node_modules $out/
+      '';
+    } // extraEnvVars);
+
   buildNpmPackage = args @ {
-    src, npmBuild ? "npm ci", npmBuildMore ? "",
-    buildInputs ? [], npmFlags ? [], ...
+    src, npmBuild, buildInputs ? [],
+
+    # allows to avoid rebuilding node_modules each time `src` changes (e.g. if you filter gitignored files)
+    packageJson ? src + "/package.json", packageLockJson ? src + "/package-lock.json",
+
+    # pass env variables to `npm install`
+    extraEnvVars ? {},
+    ...
   }:
     let
-      info  = npmInfo src;
-      lock  = fromJSON (readFile (src + "/package-lock.json"));
+      info = fromJSON (readFile packageJson);
+      lock = fromJSON (readFile packageLockJson);
+      name = "${info.name}-${info.version}";
+      nodeModules = mkNodeModules { inherit packageJson packageLockJson extraEnvVars; };
     in stdenv.mkDerivation ({
-      inherit (info) name;
-      inherit (info.info) version;
+      inherit name;
 
-      preBuildPhases    = [ "npmCachePhase" ];
-      preInstallPhases  = [ "npmPackPhase" ];
-
-      npmCachePhase = ''
-        addToSearchPath NODE_PATH ${npmModules}   # pacote
-        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
+      configurePhase = ''
+        cp -r ${nodeModules}/node_modules ./node_modules
+        chmod -R u+w ./node_modules
       '';
 
       buildPhase = ''
-        ${npmAlias}
         runHook preBuild
         ${npmBuild}
-        ${npmBuildMore}
         runHook postBuild
-      '';
-
-      # make a package .tgz (no way around it)
-      npmPackPhase = ''
-        ${npmAlias}
-        npm prune --production
-        rm -rf ./npm-cache
-        npm pack --ignore-scripts
       '';
 
       installPhase = ''
         runHook preInstall
-        ${untarAndWrap info.name [npmCmd]}
+        npm prune --production
+        npm pack --ignore-scripts
+        ${untarAndWrap name [npmCmd]}
         runHook postInstall
       '';
-    } // commonEnv // args // {
+    } // commonEnv // extraEnvVars // removeAttrs args [ "extraEnvVars" ] // {
       buildInputs = commonBuildInputs ++ buildInputs;
-      npmFlags    = npmFlagsNpm ++ npmFlags;
     });
 
   buildYarnPackage = args @ {
