@@ -76,7 +76,11 @@ with stdenv.lib; let
   yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
-  npmFlagsNpm   = [ "--cache=./npm-cache" "--nodedir=${_nodejs}" ] ++ npmFlagsYarn;
+  npmFlagsNpm   = [
+    # `npm ci` treats cache parameter differently since npm 6.11.3:
+    "--cache=${if versionAtLeast _nodejs.version "10.17.0" then "./npm-cache/_cacache" else "./npm-cache"}"
+    "--nodedir=${_nodejs}"
+  ] ++ npmFlagsYarn;
 
   commonEnv = {
     XDG_CONFIG_DIRS     = ".";
