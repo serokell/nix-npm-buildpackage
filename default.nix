@@ -115,8 +115,23 @@ with stdenv.lib; let
     sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
   };
 in rec {
-  mkNodeModules = { packageJson, packageLockJson, extraEnvVars ? {} }:
+  mkNodeModules = { src, extraEnvVars ? {} }:
     let
+      # filter out everything except package.json and package-lock.json if possible
+      # allows to avoid rebuilding node_modules if these two files didn't change
+      filteredSrc =
+        let
+          origSrc = if src ? _isLibCleanSourceWith then src.origSrc else src;
+          getRelativePath = path: removePrefix (toString origSrc + "/") path;
+          usedPaths = [ "package.json" "package-lock.json" ];
+          cleanedSource = cleanSourceWith {
+            src = src;
+            filter = path: type: elem (getRelativePath path) usedPaths;
+          };
+        in if canCleanSource src then cleanedSource else src;
+
+      packageJson = filteredSrc + "/package.json";
+      packageLockJson = filteredSrc + "/package-lock.json";
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in stdenv.mkDerivation ({
@@ -145,19 +160,13 @@ in rec {
 
   buildNpmPackage = args @ {
     src, npmBuild, buildInputs ? [],
-
-    # allows to avoid rebuilding node_modules each time `src` changes (e.g. if you filter gitignored files)
-    packageJson ? src + "/package.json", packageLockJson ? src + "/package-lock.json",
-
-    # pass env variables to `npm install`
-    extraEnvVars ? {},
+    extraEnvVars ? {}, # environment variables passed through to `npm ci`
     ...
   }:
     let
-      info = fromJSON (readFile packageJson);
-      lock = fromJSON (readFile packageLockJson);
+      info = fromJSON (readFile (src + "/package.json"));
       name = "${info.name}-${info.version}";
-      nodeModules = mkNodeModules { inherit packageJson packageLockJson extraEnvVars; };
+      nodeModules = mkNodeModules { inherit src extraEnvVars; };
     in stdenv.mkDerivation ({
       inherit name;
 
