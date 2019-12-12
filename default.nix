@@ -183,7 +183,8 @@ in rec {
 
       installPhase = ''
         runHook preInstall
-        npm prune --production
+        # `npm prune` uses cache for some reason
+        npm prune --production --cache=./npm-prune-cache/
         npm pack --ignore-scripts
         ${untarAndWrap name [npmCmd]}
         runHook postInstall
