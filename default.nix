@@ -176,7 +176,7 @@ in rec {
 
       configurePhase = ''
         patchShebangs .
-        cp -r ${nodeModules}/node_modules ./node_modules
+        cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
         chmod -R u+w ./node_modules
       '';
 
