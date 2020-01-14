@@ -1,5 +1,5 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn }:
+  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn, jq }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs;
 
@@ -137,12 +137,12 @@ in rec {
     in stdenv.mkDerivation ({
       name = "${info.name}-${info.version}-node-modules";
 
-      buildInputs = [ _nodejs ];
+      buildInputs = [ _nodejs jq ];
 
       npmFlags = npmFlagsNpm;
-
       buildCommand = ''
-        cp ${packageJson} ./package.json
+        # do not run the toplevel lifecycle scripts, we only do dependencies
+        jq '.scripts={}' ${packageJson} > ./package.json
         cp ${packageLockJson} ./package-lock.json
 
         echo 'building npm cache'
@@ -159,7 +159,11 @@ in rec {
     } // extraEnvVars);
 
   buildNpmPackage = args @ {
-    src, npmBuild, buildInputs ? [],
+    src, npmBuild ? ''
+        # this is what npm runs by default, only run when it exists
+        ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
+        ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
+    '', buildInputs ? [],
     extraEnvVars ? {}, # environment variables passed through to `npm ci`
     ...
   }:
@@ -171,6 +175,7 @@ in rec {
       inherit name;
 
       configurePhase = ''
+        patchShebangs .
         cp -r ${nodeModules}/node_modules ./node_modules
         chmod -R u+w ./node_modules
       '';
