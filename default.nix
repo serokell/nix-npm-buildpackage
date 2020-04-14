@@ -77,8 +77,13 @@ with stdenv.lib; let
 
   npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
   npmFlagsNpm   = [
-    # `npm ci` treats cache parameter differently since npm 6.11.3:
-    "--cache=${if versionAtLeast _nodejs.version "10.17.0" then "./npm-cache/_cacache" else "./npm-cache"}"
+    "--cache=${
+      # `npm ci` had been treating `cache` parameter incorrently since npm 6.11.3, it was fixed in 6.13.5
+      # https://github.com/npm/cli/pull/550
+      if versionAtLeast _nodejs.version "10.17.0" && !(versionAtLeast _nodejs.version "10.20.0")
+      then "./npm-cache/_cacache"
+      else "./npm-cache"
+    }"
     "--nodedir=${_nodejs}"
   ] ++ npmFlagsYarn;
 
