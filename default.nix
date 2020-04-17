@@ -80,6 +80,7 @@ with stdenv.lib; let
     # `npm ci` treats cache parameter differently since npm 6.11.3:
     "--cache=${if versionAtLeast _nodejs.version "10.17.0" then "./npm-cache/_cacache" else "./npm-cache"}"
     "--nodedir=${_nodejs}"
+    "--no-update-notifier"
   ] ++ npmFlagsYarn;
 
   commonEnv = {
@@ -141,6 +142,15 @@ in rec {
 
       npmFlags = npmFlagsNpm;
       buildCommand = ''
+        # Inside nix-build sandbox $HOME points to a non-existing
+        # directory, but npm may try to create this directory (e.g.
+        # when you run `npm install` or `npm prune`) and will succeed
+        # if you have a single-user nix installation (because / is
+        # writable in this case), causing different behavior for
+        # single-user and multi-user nix. Create read-only $HOME to
+        # prevent it
+        mkdir -p --mode=a-w "$HOME"
+
         # do not run the toplevel lifecycle scripts, we only do dependencies
         jq '.scripts={}' ${packageJson} > ./package.json
         cp ${packageLockJson} ./package-lock.json
@@ -175,6 +185,8 @@ in rec {
       inherit name;
 
       configurePhase = ''
+        mkdir -p --mode=a-w "$HOME"
+
         patchShebangs .
         cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
         chmod -R u+w ./node_modules
