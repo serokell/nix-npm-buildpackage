@@ -187,7 +187,13 @@ in rec {
       configurePhase = ''
         mkdir -p --mode=a-w "$HOME"
 
+        if [[ -e ./node_modules ]]; then
+          echo 'WARNING: node_modules directory already exists, removing it'
+          rm -rf ./node_modules
+        fi
+
         patchShebangs .
+
         cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
         chmod -R u+w ./node_modules
       '';
