@@ -26,7 +26,7 @@ with stdenv.lib; let
 
   cacheInput = oFile: iFile: writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
 
-  dirOfLocal = { version }:
+  dirOfLocal = { version, ... }:
     builtins.head (builtins.match "file:(.*)" version);
 
   isLocal = dep: dep ? version && (! isNull (builtins.match "file:.*" dep.version));
