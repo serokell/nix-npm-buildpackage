@@ -145,9 +145,10 @@ in rec {
             ++ localDeps;
           dirOfRec = x: if dirOf x == "." || dirOf x == "/" then [x] else ([x] ++ dirOfRec (dirOf x));
           usedPathsRec = builtins.concatMap dirOfRec usedPaths;
-          cleanedSource = builtins.filterSource (
-            path: type: any (x: elem x usedPathsRec) (dirOfRec (getRelativePath path))
-          ) src;
+          cleanedSource = cleanSourceWith {
+            src = src;
+            filter = path: type: any (x: elem x usedPathsRec) (dirOfRec (getRelativePath path));
+          };
         in if canCleanSource src then cleanedSource else src;
 
       peerDependencies = map (localDep: mkNodeModules { inherit extraEnvVars; src = src + ("/" + localDep); }) localDeps;
