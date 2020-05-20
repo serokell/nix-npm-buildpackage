@@ -151,7 +151,6 @@ in rec {
           };
         in if canCleanSource src then cleanedSource else src;
 
-      peerDependencies = map (localDep: mkNodeModules { inherit extraEnvVars; src = src + ("/" + localDep); }) localDeps;
     in stdenv.mkDerivation ({
       name = "${normalizeName info.name}-node-modules-${info.version}";
 
@@ -184,10 +183,9 @@ in rec {
         echo 'building node_modules'
         npm $npmFlags ci
         patchShebangs ./node_modules/
-        ${concatMapStringsSep "\n" (dep: "cp -r ${dep}/node_modules/* node_modules") peerDependencies}
 
         mkdir $out
-        cp -r ./node_modules $out/
+        mv ./node_modules $out/
       '';
     } // extraEnvVars);
 
