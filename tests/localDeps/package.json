@@ -1,0 +1,13 @@
+{
+    "name": "local-dep-test",
+    "version": "1.0.0",
+    "scripts": {
+        "build": "mkdir -p out; cat node_modules/foo/package.json > out/result"
+    },
+    "files": [
+        "out"
+    ],
+    "dependencies": {
+        "foo": "file:deps/foo"
+    }
+}
