@@ -135,12 +135,14 @@ in rec {
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
       localDeps = map dirOfLocal (builtins.filter isLocal (builtins.attrValues (lock.dependencies)));
+
+      origSrc = if src ? _isLibCleanSourceWith then src.origSrc else src;
+      getRelativePath = path: removePrefix (toString origSrc + "/") path;
+
       # filter out everything except package.json and package-lock.json if possible
       # allows to avoid rebuilding node_modules if these two files didn't change
       filteredSrc =
         let
-          origSrc = if src ? _isLibCleanSourceWith then src.origSrc else src;
-          getRelativePath = path: removePrefix (toString origSrc + "/") path;
           usedPaths = [ "package.json" "package-lock.json" ]
             ++ localDeps;
           dirOfRec = x: if dirOf x == "." || dirOf x == "/" then [x] else ([x] ++ dirOfRec (dirOf x));
