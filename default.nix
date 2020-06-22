@@ -1,7 +1,7 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin,
   stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn, jq }:
 with stdenv.lib; let
-  inherit (builtins) fromJSON toJSON split removeAttrs;
+  inherit (builtins) fromJSON toJSON split removeAttrs toFile;
 
   _nodejs = nodejs-10_x;
   _yarn   = yarn.override { nodejs = _nodejs; };
@@ -121,27 +121,14 @@ with stdenv.lib; let
     sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
   };
 in rec {
-  mkNodeModules = { src, extraEnvVars ? {} }:
+  mkNodeModules = { src, extraEnvVars ? {}, pname, version }:
     let
-      # filter out everything except package.json and package-lock.json if possible
-      # allows to avoid rebuilding node_modules if these two files didn't change
-      filteredSrc =
-        let
-          origSrc = if src ? _isLibCleanSourceWith then src.origSrc else src;
-          getRelativePath = path: removePrefix (toString origSrc + "/") path;
-          usedPaths = [ "package.json" "package-lock.json" ];
-          cleanedSource = cleanSourceWith {
-            src = src;
-            filter = path: type: elem (getRelativePath path) usedPaths;
-          };
-        in if canCleanSource src then cleanedSource else src;
-
-      packageJson = filteredSrc + "/package.json";
-      packageLockJson = filteredSrc + "/package-lock.json";
+      packageJson = src + /package.json;
+      packageLockJson = src + /package-lock.json;
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in stdenv.mkDerivation ({
-      name = "${info.name}-${info.version}-node-modules";
+      name = "${pname}-${version}-node-modules";
 
       buildInputs = [ _nodejs jq ];
 
@@ -158,8 +145,8 @@ in rec {
         chmod a-w "$HOME"
 
         # do not run the toplevel lifecycle scripts, we only do dependencies
-        jq '.scripts={}' ${packageJson} > ./package.json
-        cp ${packageLockJson} ./package-lock.json
+        cp ${toFile "package.json" (builtins.toJSON (info // { scripts = { }; }))} ./package.json
+        cp ${toFile "package-lock.json" (builtins.toJSON lock)} ./package-lock.json
 
         echo 'building npm cache'
         chmod u+w ./package-lock.json
@@ -184,11 +171,12 @@ in rec {
     ...
   }:
     let
-      info = fromJSON (readFile (src + "/package.json"));
-      name = "${info.name}-${info.version}";
-      nodeModules = mkNodeModules { inherit src extraEnvVars; };
+      info = fromJSON (readFile (src + /package.json));
+      pname = info.name or "unknown-node-package";
+      version = info.version or "unknown";
+      nodeModules = mkNodeModules { inherit src extraEnvVars pname version; };
     in stdenv.mkDerivation ({
-      inherit name;
+      inherit pname version;
 
       configurePhase = ''
         export HOME=$(mktemp -d)
@@ -216,7 +204,7 @@ in rec {
         # `npm prune` uses cache for some reason
         npm prune --production --cache=./npm-prune-cache/
         npm pack --ignore-scripts
-        ${untarAndWrap name [npmCmd]}
+        ${untarAndWrap "${pname}-${version}" [npmCmd]}
         runHook postInstall
       '';
     } // commonEnv // extraEnvVars // removeAttrs args [ "extraEnvVars" ] // {
