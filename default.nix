@@ -258,7 +258,7 @@ in rec {
 
       yarnCachePhase = ''
         mkdir -p yarn-cache
-        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps}
+        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps {}}
       '';
 
       buildPhase = ''
