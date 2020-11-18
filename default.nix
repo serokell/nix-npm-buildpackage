@@ -21,10 +21,22 @@ with stdenv.lib; let
       path = fetchurl { name = fname; url = resolved; "${hashType}" = hash; };
     };
 
+  overrideTgz = src: runCommand "${src.name}.tgz" {} ''
+    cp -r --reflink=auto ${src} ./package
+    chmod +w ./package ./package/package.json
+    # scripts are not supported
+    ${jq}/bin/jq '.scripts={}' ${src}/package.json > ./package/package.json
+    tar --sort=name --owner=0:0 --group=0:0 --mtime='UTC 2019-01-01' -czf $out package
+  '';
+
+  overrideToFetch = pkg: { path = "${overrideTgz pkg}"; };
+
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
     (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
 
-  cacheInput = oFile: iFile: writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
+  cacheInput = oFile: iFile: overrides:
+    writeText oFile (toJSON ((listToAttrs (depToFetch iFile))
+      // (builtins.mapAttrs (_: overrideToFetch) overrides)));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -121,7 +133,7 @@ with stdenv.lib; let
     sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
   };
 in rec {
-  mkNodeModules = { src, extraEnvVars ? {}, pname, version }:
+  mkNodeModules = { src, packageOverrides, extraEnvVars ? {}, pname, version }:
     let
       packageJson = src + /package.json;
       packageLockJson = src + /package-lock.json;
@@ -150,7 +162,7 @@ in rec {
 
         echo 'building npm cache'
         chmod u+w ./package-lock.json
-        NODE_PATH=${npmModules} node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
+        NODE_PATH=${npmModules} node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock packageOverrides}
 
         echo 'building node_modules'
         npm $npmFlags ci
@@ -167,6 +179,7 @@ in rec {
         ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
         ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
     '', buildInputs ? [],
+      packageOverrides ? {},
     extraEnvVars ? {}, # environment variables passed through to `npm ci`
     ...
   }:
@@ -174,7 +187,7 @@ in rec {
       info = fromJSON (readFile (src + /package.json));
       pname = info.name or "unknown-node-package";
       version = info.version or "unknown";
-      nodeModules = mkNodeModules { inherit src extraEnvVars pname version; };
+      nodeModules = mkNodeModules { inherit src packageOverrides extraEnvVars pname version; };
     in stdenv.mkDerivation ({
       inherit pname version;
 
@@ -207,7 +220,7 @@ in rec {
         ${untarAndWrap "${pname}-${version}" [npmCmd]}
         runHook postInstall
       '';
-    } // commonEnv // extraEnvVars // removeAttrs args [ "extraEnvVars" ] // {
+    } // commonEnv // extraEnvVars // removeAttrs args [ "extraEnvVars" "packageOverrides" ] // {
       buildInputs = commonBuildInputs ++ buildInputs;
     });
 
@@ -245,7 +258,7 @@ in rec {
 
       yarnCachePhase = ''
         mkdir -p yarn-cache
-        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps}
+        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps {}}
       '';
 
       buildPhase = ''
