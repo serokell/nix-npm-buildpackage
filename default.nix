@@ -34,9 +34,16 @@ with stdenv.lib; let
   depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
     (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
 
+  # TODO: Make the override semantics similar to yarnCacheInput and
+  #       deduplicate.
   cacheInput = oFile: iFile: overrides:
     writeText oFile (toJSON ((listToAttrs (depToFetch iFile))
       // (builtins.mapAttrs (_: overrideToFetch) overrides)));
+
+  yarnCacheInput = oFile: iFile: overrides: let
+    self = listToAttrs (depToFetch iFile);
+    final = fix (foldl' (flip extends) (const self) overrides);
+  in writeText oFile (toJSON final);
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -226,7 +233,7 @@ in rec {
 
   buildYarnPackage = args @ {
     src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? {},
-    buildInputs ? [], yarnFlags ? [], npmFlags ? [], ...
+    packageOverrides ? [], buildInputs ? [], yarnFlags ? [], npmFlags ? [], ...
   }:
     let
       info        = npmInfo src;
@@ -258,7 +265,7 @@ in rec {
 
       yarnCachePhase = ''
         mkdir -p yarn-cache
-        node ${./mkyarncache.js} ${cacheInput "yarn-cache-input.json" deps {}}
+        node ${./mkyarncache.js} ${yarnCacheInput "yarn-cache-input.json" deps packageOverrides}
       '';
 
       buildPhase = ''
@@ -281,7 +288,7 @@ in rec {
         ${untarAndWrap info.name [npmCmd yarnCmd]}
         runHook postInstall
       '';
-    } // commonEnv // removeAttrs args [ "integreties" ] // {
+    } // commonEnv // removeAttrs args [ "integreties" "packageOverrides" ] // {
       buildInputs = [ _yarn ] ++ commonBuildInputs ++ buildInputs;
       yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
       npmFlags    = npmFlagsYarn ++ npmFlags;
