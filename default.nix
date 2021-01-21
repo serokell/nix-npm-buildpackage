@@ -1,9 +1,9 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, fetchurl, makeWrapper, nodejs-10_x, yarn, jq }:
+  stdenv, fetchurl, makeWrapper, nodejs, yarn, jq }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs toFile;
 
-  _nodejs = nodejs-10_x;
+  _nodejs = nodejs;
   _yarn   = yarn.override { nodejs = _nodejs; };
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
