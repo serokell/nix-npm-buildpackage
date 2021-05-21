@@ -22,7 +22,7 @@ with stdenv.lib; let
       parsedPath= splitString "#" uri;
       parsedFrom= splitString "#" args.from;
       rev       = elemAt parsedPath 1;
-      ref       = elemAt parsedFrom 1;
+      ref       = if builtins.length parsedFrom > 1 then elemAt parsedFrom 1 else "master";
       protocol  = elemAt parsedURI 0;
       ssri      = split "-" args.integrity;
       hashType  = head ssri;
