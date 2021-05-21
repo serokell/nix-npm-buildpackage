@@ -36,7 +36,7 @@ async function main(lockfile, nix, cache) {
       return
     }
     let id = dep.resolved || dep.version;
-    if ((dep.from && dep.from.includes("git")) || ! dep.integrity.startsWith("sha512-")) {
+        if ((dep.from && dep.from.includes("git")) || (dep.integrity && ! dep.integrity.startsWith("sha512-"))) {
       assert(hashes.has(id))
       dep.integrity = hashes.get(id)
     } else {
