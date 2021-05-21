@@ -1,5 +1,5 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, fetchurl, makeWrapper, nodejs, yarn, jq }:
+  stdenv, fetchurl, makeWrapper, nodejs, yarn, jq, gnutar }:
 with stdenv.lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs toFile;
 
@@ -8,18 +8,35 @@ with stdenv.lib; let
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
-  depFetchOwn = { resolved, integrity, name ? null, ... }:
+  makeTarball = name: path: runCommand "${name}.tar.gz" {
+    buildInputs = [ gnutar ];
+  } ''
+    cp -R "${path}" package
+    tar -caf $out package
+  '';
+
+  depFetchOwn = args:
     let
-      ssri      = split "-" integrity;
+      uri       = args.resolved or args.version;
+      parsedURI = splitString "://" uri;
+      parsedPath= splitString "#" uri;
+      parsedFrom= splitString "#" args.from;
+      rev       = elemAt parsedPath 1;
+      ref       = elemAt parsedFrom 1;
+      protocol  = elemAt parsedURI 0;
+      ssri      = split "-" args.integrity;
       hashType  = head ssri;
       hash      = elemAt ssri 2;
-      bname     = baseNameOf resolved;
+      bname     = baseNameOf uri;
       fname     = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname
                   then bname else bname + ".tgz";
-    in nameValuePair resolved {
-      inherit name bname;
-      path = fetchurl { name = fname; url = resolved; "${hashType}" = hash; };
-    };
+      path      = if hasInfix "git" protocol
+                  then makeTarball (args.name or "source") (builtins.fetchGit { url = uri; inherit ref rev; })
+                  else if args ? integrity
+                  then fetchurl { name = fname; url = uri; "${hashType}" = hash; }
+                  else throw "Unsupported dependency ${uri} (${args.name or "no name"})";
+
+    in nameValuePair uri { name = args.name or null; inherit bname path; };
 
   overrideTgz = src: runCommand "${src.name}.tgz" {} ''
     cp -r --reflink=auto ${src} ./package
@@ -31,8 +48,8 @@ with stdenv.lib; let
 
   overrideToFetch = pkg: { path = "${overrideTgz pkg}"; };
 
-  depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
-    (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
+  depToFetch = args @ { dependencies ? {}, ... }:
+    (optional ((args ? resolved || args ? version) && (args ? integrity || args ? from)) (depFetchOwn args)) ++ (depsToFetches dependencies);
 
   cacheInput = oFile: iFile: overrides:
     writeText oFile (toJSON ((listToAttrs (depToFetch iFile))

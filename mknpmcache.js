@@ -16,7 +16,7 @@ const lock          = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
 const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
 function traverseDeps(pkg, fn) {
-  Object.entries(pkg.dependencies).forEach(([name, dep]) => {
+    Object.entries(pkg.dependencies).forEach(([name, dep]) => {
     fn(name, dep)
     if (dep.dependencies) traverseDeps(dep, fn)
   })
@@ -29,20 +29,18 @@ async function main(lockfile, nix, cache) {
     return [url, manifest._integrity]
   })
   const hashes = new Map(await Promise.all(promises))
-  traverseDeps(lockfile, (name, dep) => {
+    traverseDeps(lockfile, (name, dep) => {
     if (hashes.has(name)) {
       console.log("overriding package", name)
       dep.integrity = hashes.get(name)
       return
     }
-    if (!dep.integrity || !dep.resolved) {
-      return
-    }
-    if (dep.integrity.startsWith("sha1-")) {
-      assert(hashes.has(dep.resolved))
-      dep.integrity = hashes.get(dep.resolved)
+    let id = dep.resolved || dep.version;
+    if ((dep.from && dep.from.includes("git")) || ! dep.integrity.startsWith("sha512-")) {
+      assert(hashes.has(id))
+      dep.integrity = hashes.get(id)
     } else {
-      assert(dep.integrity == hashes.get(dep.resolved))
+      assert(dep.integrity == hashes.get(id))
     }
   })
   // rewrite lock file to use sha512 hashes from pacote and overrides
