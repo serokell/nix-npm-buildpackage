@@ -1,6 +1,6 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, fetchurl, makeWrapper, nodejs, yarn, jq }:
-with stdenv.lib; let
+  stdenv, lib, fetchurl, makeWrapper, nodejs, yarn, jq }:
+with lib; let
   inherit (builtins) fromJSON toJSON split removeAttrs toFile;
 
   _nodejs = nodejs;
