@@ -5,4 +5,7 @@ let
 
   npm-buildpackage = pkgs.callPackage ./default.nix {};
 in
-  import ./tests/buildNpmPackage { inherit pkgs npm-buildpackage; }
+{
+  npm = import ./tests/buildNpmPackage { inherit pkgs npm-buildpackage; };
+  yarn = import ./tests/buildNpmPackage/yarn.nix { inherit pkgs npm-buildpackage; };
+}
