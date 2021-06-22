@@ -1,38 +1,44 @@
-{ writeShellScriptBin, writeText, runCommand, writeScriptBin,
-  stdenv, lib, fetchurl, makeWrapper, nodejs, yarn, jq }:
-with lib; let
+{ writeShellScriptBin, writeText, runCommand, writeScriptBin, stdenv, lib
+, fetchurl, makeWrapper, nodejs, yarn, jq }:
+with lib;
+let
   inherit (builtins) fromJSON toJSON split removeAttrs toFile;
-
-  _nodejs = nodejs;
-  _yarn   = yarn.override { nodejs = _nodejs; };
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
   depFetchOwn = { resolved, integrity, name ? null, ... }:
     let
-      ssri      = split "-" integrity;
-      hashType  = head ssri;
-      hash      = elemAt ssri 2;
-      bname     = baseNameOf resolved;
-      fname     = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname
-                  then bname else bname + ".tgz";
+      ssri = split "-" integrity;
+      hashType = head ssri;
+      hash = elemAt ssri 2;
+      bname = baseNameOf resolved;
+      fname = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname then
+        bname
+      else
+        bname + ".tgz";
     in nameValuePair resolved {
       inherit name bname;
-      path = fetchurl { name = fname; url = resolved; "${hashType}" = hash; };
+      path = fetchurl {
+        name = fname;
+        url = resolved;
+        "${hashType}" = hash;
+      };
     };
 
-  overrideTgz = src: runCommand "${src.name}.tgz" {} ''
-    cp -r --reflink=auto ${src} ./package
-    chmod +w ./package ./package/package.json
-    # scripts are not supported
-    ${jq}/bin/jq '.scripts={}' ${src}/package.json > ./package/package.json
-    tar --sort=name --owner=0:0 --group=0:0 --mtime='UTC 2019-01-01' -czf $out package
-  '';
+  overrideTgz = src:
+    runCommand "${src.name}.tgz" { } ''
+      cp -r --reflink=auto ${src} ./package
+      chmod +w ./package ./package/package.json
+      # scripts are not supported
+      ${jq}/bin/jq '.scripts={}' ${src}/package.json > ./package/package.json
+      tar --sort=name --owner=0:0 --group=0:0 --mtime='UTC 2019-01-01' -czf $out package
+    '';
 
   overrideToFetch = pkg: { path = "${overrideTgz pkg}"; };
 
-  depToFetch = args @ { resolved ? null, dependencies ? {}, ... }:
-    (optional (resolved != null) (depFetchOwn args)) ++ (depsToFetches dependencies);
+  depToFetch = args@{ resolved ? null, dependencies ? { }, ... }:
+    (optional (resolved != null) (depFetchOwn args))
+    ++ (depsToFetches dependencies);
 
   # TODO: Make the override semantics similar to yarnCacheInput and
   #       deduplicate.
@@ -40,16 +46,19 @@ with lib; let
     writeText oFile (toJSON ((listToAttrs (depToFetch iFile))
       // (builtins.mapAttrs (_: overrideToFetch) overrides)));
 
-  yarnCacheInput = oFile: iFile: overrides: let
-    self = listToAttrs (depToFetch iFile);
-    final = fix (foldl' (flip extends) (const self) overrides);
-  in writeText oFile (toJSON final);
-
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
     source ${stdenv}/setup
     patchShebangs "$@"
   '';
+
+  npmInfo = src: rec {
+    info = fromJSON (readFile (src + "/package.json"));
+    pname = info.name or "unknown-node-package";
+    version = info.version or "unknown";
+  };
+
+  npmModules = "${nodejs}/lib/node_modules/npm/node_modules";
 
   shellWrap = writeShellScriptBin "npm-shell-wrap.sh" ''
     set -e
@@ -59,61 +68,29 @@ with lib; let
     exec bash "$@"
   '';
 
-  npmInfo = src: rec {
-    pkgJson = src + "/package.json";
-    info    = fromJSON (readFile pkgJson);
-    name    = "${info.name}-${info.version}";
-  };
-
-  yarnWrapper = writeScriptBin "yarn" ''
-    #!${_nodejs}/bin/node
-    const { promisify } = require('util')
-    const child_process = require('child_process');
-    const exec = promisify(child_process.exec)
-    const { existsSync } = require('fs')
-    async function getYarn() {
-        const yarn = "${_yarn}/bin/yarn"
-        if (existsSync(`''${yarn}.js`)) return `''${yarn}.js`
-        return yarn
-    }
-    global.experimentalYarnHooks = {
-        async linkStep(cb) {
-            const res = await cb()
-            console.log("patching shebangs")
-            await exec("${patchShebangs}/bin/patchShebangs.sh node_modules")
-            return res
-        }
-    }
-    getYarn().then(require)
-  '';
-
-  npmCmd        = "${_nodejs}/bin/npm";
-  npmAlias      = ''npm() { ${npmCmd} "$@" $npmFlags; }'';
-  npmModules    = "${_nodejs}/lib/node_modules/npm/node_modules";
-
-  yarnCmd       = "${yarnWrapper}/bin/yarn";
-  yarnAlias     = ''yarn() { ${yarnCmd} $yarnFlags "$@"; }'';
-
-  npmFlagsYarn  = [ "--offline" "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh" ];
-  npmFlagsNpm   = [
+  npmFlagsNpm = [
     "--cache=${
-      # `npm ci` had been treating `cache` parameter incorrently since npm 6.11.3, it was fixed in 6.13.5
-      # https://github.com/npm/cli/pull/550
-      if versionAtLeast _nodejs.version "10.17.0" && !(versionAtLeast _nodejs.version "10.20.0")
-      then "./npm-cache/_cacache"
-      else "./npm-cache"
+    # `npm ci` had been treating `cache` parameter incorrently since npm 6.11.3, it was fixed in 6.13.5
+    # https://github.com/npm/cli/pull/550
+      if versionAtLeast nodejs.version "10.17.0"
+      && !(versionAtLeast nodejs.version "10.20.0") then
+        "./npm-cache/_cacache"
+      else
+        "./npm-cache"
     }"
-    "--nodedir=${_nodejs}"
+    "--nodedir=${nodejs}"
     "--no-update-notifier"
-  ] ++ npmFlagsYarn;
+    "--offline"
+    "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh"
+  ];
 
   commonEnv = {
-    XDG_CONFIG_DIRS     = ".";
-    NO_UPDATE_NOTIFIER  = true;
-    installJavascript   = true;
+    XDG_CONFIG_DIRS = ".";
+    NO_UPDATE_NOTIFIER = true;
+    installJavascript = true;
   };
 
-  commonBuildInputs = [ _nodejs makeWrapper ];  # TODO: git?
+  commonBuildInputs = [ nodejs makeWrapper ]; # TODO: git?
 
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
@@ -125,22 +102,22 @@ with lib; let
       cp -R node_modules $out/
       patchShebangs $out/bin
       for i in $out/bin/*.js; do
-        makeWrapper ${_nodejs}/bin/node $out/bin/$(basename $i .js) \
+        makeWrapper ${nodejs}/bin/node $out/bin/$(basename $i .js) \
           --add-flags $i --run "cd $out"
       done
-      ${ concatStringsSep ";" (map (cmd:
-        ''makeWrapper ${cmd} $out/bin/${baseNameOf cmd} --run "cd $out" --prefix PATH : ${stdenv.shellPackage}/bin''
-      ) cmds) }
+      ${
+        concatStringsSep ";" (map (cmd:
+          ''
+            makeWrapper ${cmd} $out/bin/${
+              baseNameOf cmd
+            } --run "cd $out" --prefix PATH : ${stdenv.shellPackage}/bin'')
+          cmds)
+      }
     fi
   '';
 
-  yarnpkg-lockfile = fetchurl {
-    name = "_yarnpkg_lockfile___lockfile_1.1.0.tgz";
-    url  = "https://registry.yarnpkg.com/@yarnpkg/lockfile/-/lockfile-1.1.0.tgz";
-    sha1 = "e77a97fbd345b76d83245edcd17d393b1b41fb31";
-  };
 in rec {
-  mkNodeModules = { src, packageOverrides, extraEnvVars ? {}, pname, version }:
+  mkNodeModules = { src, packageOverrides, extraEnvVars ? { }, pname, version }:
     let
       packageJson = src + /package.json;
       packageLockJson = src + /package-lock.json;
@@ -149,7 +126,7 @@ in rec {
     in stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
-      buildInputs = [ _nodejs jq ];
+      buildInputs = [ nodejs jq ];
 
       npmFlags = npmFlagsNpm;
       buildCommand = ''
@@ -169,7 +146,9 @@ in rec {
 
         echo 'building npm cache'
         chmod u+w ./package-lock.json
-        NODE_PATH=${npmModules} node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock packageOverrides}
+
+        addToSearchPath NODE_PATH ${npmModules} # ssri
+        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock packageOverrides}
 
         echo 'building node_modules'
         npm $npmFlags ci
@@ -180,21 +159,18 @@ in rec {
       '';
     } // extraEnvVars);
 
-  buildNpmPackage = args @ {
-    src, npmBuild ? ''
-        # this is what npm runs by default, only run when it exists
-        ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
-        ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
-    '', buildInputs ? [],
-      packageOverrides ? {},
-    extraEnvVars ? {}, # environment variables passed through to `npm ci`
-    ...
-  }:
+  buildNpmPackage = args@{ src, npmBuild ? ''
+    # this is what npm runs by default, only run when it exists
+    ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
+    ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
+  '', buildInputs ? [ ], packageOverrides ? { }, extraEnvVars ? { }
+    , # environment variables passed through to `npm ci`
+    ... }:
     let
-      info = fromJSON (readFile (src + /package.json));
-      pname = info.name or "unknown-node-package";
-      version = info.version or "unknown";
-      nodeModules = mkNodeModules { inherit src packageOverrides extraEnvVars pname version; };
+      inherit (npmInfo src) pname version;
+      nodeModules = mkNodeModules {
+        inherit src packageOverrides extraEnvVars pname version;
+      };
     in stdenv.mkDerivation ({
       inherit pname version;
 
@@ -224,73 +200,18 @@ in rec {
         # `npm prune` uses cache for some reason
         npm prune --production --cache=./npm-prune-cache/
         npm pack --ignore-scripts
-        ${untarAndWrap "${pname}-${version}" [npmCmd]}
+        ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
+
         runHook postInstall
       '';
-    } // commonEnv // extraEnvVars // removeAttrs args [ "extraEnvVars" "packageOverrides" ] // {
-      buildInputs = commonBuildInputs ++ buildInputs;
-    });
+    } // commonEnv // extraEnvVars
+      // removeAttrs args [ "extraEnvVars" "packageOverrides" ] // {
+        buildInputs = commonBuildInputs ++ buildInputs;
+      });
 
-  buildYarnPackage = args @ {
-    src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? {},
-    packageOverrides ? [], buildInputs ? [], yarnFlags ? [], npmFlags ? [], ...
-  }:
-    let
-      info        = npmInfo src;
-      deps        = { dependencies = fromJSON (readFile yarnJson); };
-      yarnIntFile = writeText "integreties.json" (toJSON integreties);
-      yarnLock    = src + "/yarn.lock";
-      yarnJson    = runCommand "yarn.json" {} ''
-        set -e
-        mkdir -p node_modules/@yarnpkg/lockfile
-        tar -C $_ --strip-components=1 -xf ${yarnpkg-lockfile}
-        addToSearchPath NODE_PATH $PWD/node_modules         # @yarnpkg/lockfile
-        addToSearchPath NODE_PATH ${npmModules}             # ssri
-        ${_nodejs}/bin/node ${./mkyarnjson.js} ${yarnLock} ${yarnIntFile} > $out
-      '';
-    in stdenv.mkDerivation ({
-      inherit (info) name;
-      inherit (info.info) version;
-
-      preBuildPhases    = [ "yarnConfigPhase" "yarnCachePhase" ];
-      preInstallPhases  = [ "yarnPackPhase" ];
-
-      # TODO
-      yarnConfigPhase = ''
-        cat <<-END >> .yarnrc
-        	yarn-offline-mirror "$PWD/yarn-cache"
-        	nodedir "${_nodejs}"
-        END
-      '';
-
-      yarnCachePhase = ''
-        mkdir -p yarn-cache
-        node ${./mkyarncache.js} ${yarnCacheInput "yarn-cache-input.json" deps packageOverrides}
-      '';
-
-      buildPhase = ''
-        ${npmAlias}
-        ${yarnAlias}
-        runHook preBuild
-        ${yarnBuild}
-        ${yarnBuildMore}
-        runHook postBuild
-      '';
-
-      # TODO: install --production?
-      yarnPackPhase = ''
-        ${yarnAlias}
-        yarn pack --ignore-scripts --filename ${info.name}.tgz
-      '';
-
-      installPhase = ''
-        runHook preInstall
-        ${untarAndWrap info.name [npmCmd yarnCmd]}
-        runHook postInstall
-      '';
-    } // commonEnv // removeAttrs args [ "integreties" "packageOverrides" ] // {
-      buildInputs = [ _yarn ] ++ commonBuildInputs ++ buildInputs;
-      yarnFlags   = [ "--offline" "--frozen-lockfile" "--non-interactive" ] ++ yarnFlags;
-      npmFlags    = npmFlagsYarn ++ npmFlags;
-    });
+  buildYarnPackage = import ./buildYarnPackage.nix {
+    inherit lib npmInfo runCommand fetchurl npmModules writeScriptBin nodejs
+      yarn patchShebangs writeText stdenv untarAndWrap depToFetch commonEnv
+      makeWrapper writeShellScriptBin;
+  };
 }
