@@ -1,0 +1,12 @@
+{
+    "name": "foo",
+    "version": "1.0.0",
+    "scripts": {
+        "build": "mkdir -p out; echo foo > out/result"
+    },
+    "files": [
+        "out"
+    ],
+    "dependencies": {
+    }
+}

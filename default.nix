@@ -45,6 +45,11 @@ with lib; let
     final = fix (foldl' (flip extends) (const self) overrides);
   in writeText oFile (toJSON final);
 
+  dirOfLocal = { version, ... }:
+    builtins.head (builtins.match "file:(.*)" version);
+
+  isLocal = dep: dep ? version && (! isNull (builtins.match "file:.*" dep.version));
+
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
     source ${stdenv}/setup
@@ -115,6 +120,8 @@ with lib; let
 
   commonBuildInputs = [ _nodejs makeWrapper ];  # TODO: git?
 
+  normalizeName = builtins.replaceStrings [ "@" "." "/" ] [ "_" "_" "_" ];
+
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
   untarAndWrap = name: cmds: ''
@@ -146,13 +153,36 @@ in rec {
       packageLockJson = src + /package-lock.json;
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
+      localDeps = map dirOfLocal (builtins.filter isLocal (builtins.attrValues (lock.dependencies)));
+
+      origSrc = if src ? _isLibCleanSourceWith then src.origSrc else src;
+      getRelativePath = path: removePrefix (toString origSrc + "/") path;
+
+      # filter out everything except package.json and package-lock.json if possible
+      # allows to avoid rebuilding node_modules if these two files didn't change
+      filteredSrc =
+        let
+          usedPaths = [ "package.json" "package-lock.json" ]
+            ++ localDeps;
+          dirOfRec = x: if dirOf x == "." || dirOf x == "/" then [x] else ([x] ++ dirOfRec (dirOf x));
+          usedPathsRec = builtins.concatMap dirOfRec usedPaths;
+          cleanedSource = cleanSourceWith {
+            src = src;
+            filter = path: type: any (x: elem x usedPathsRec) (dirOfRec (getRelativePath path));
+          };
+        in if canCleanSource src then cleanedSource else src;
+
     in stdenv.mkDerivation ({
-      name = "${pname}-${version}-node-modules";
+      name = "${normalizeName info.name}-node-modules-${info.version}";
 
       buildInputs = [ _nodejs jq ];
 
+      src = filteredSrc;
+
       npmFlags = npmFlagsNpm;
-      buildCommand = ''
+      phases = [ "unpackPhase" "buildPhase" ];
+
+      buildPhase = ''
         # Inside nix-build sandbox $HOME points to a non-existing
         # directory, but npm may try to create this directory (e.g.
         # when you run `npm install` or `npm prune`) and will succeed
