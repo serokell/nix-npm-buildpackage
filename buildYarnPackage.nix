@@ -30,7 +30,7 @@ let
         async linkStep(cb) {
             const res = await cb()
             console.log("patching shebangs")
-            await exec("${patchShebangs}/bin/patchShebangs.sh $NIX_BUILD_TOP/source/node_modules")
+            await exec("${patchShebangs}/bin/patchShebangs.sh $SOURCE_DIR/node_modules")
             if (process.env.yarnPostLink) {
               console.log("Running post-link hook")
               console.log(await exec(process.env.yarnPostLink))
@@ -82,9 +82,8 @@ in stdenv.mkDerivation (rec {
 
     patchShebangs .
     yarn() { command yarn $yarnFlags "$@"; }
-
+    export SOURCE_DIR="$PWD"
     ${if subdir != null then "cd ${subdir}" else ""}
-
     ${yarnBuild}
     ${yarnBuildMore}
     runHook postBuild
