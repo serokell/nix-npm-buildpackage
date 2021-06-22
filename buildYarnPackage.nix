@@ -30,7 +30,11 @@ let
         async linkStep(cb) {
             const res = await cb()
             console.log("patching shebangs")
-            await exec("${patchShebangs}/bin/patchShebangs.sh node_modules")
+            await exec("${patchShebangs}/bin/patchShebangs.sh $NIX_BUILD_TOP/source/node_modules")
+            if (process.env.yarnPostLink) {
+              console.log("Running post-link hook")
+              console.log(await exec(process.env.yarnPostLink))
+            }
             return res
         }
     }
@@ -39,7 +43,8 @@ let
 
   yarnCmd = "${yarnWrapper}/bin/yarn";
 in args@{ src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? { }
-, packageOverrides ? [ ], buildInputs ? [ ], yarnFlags ? [ ]
+        , packageOverrides ? [ ], buildInputs ? [ ], yarnFlags ? [ ],
+          subdir ? null
 , ... }:
 let
   deps = { dependencies = builtins.fromJSON (builtins.readFile yarnJson); };
@@ -52,8 +57,9 @@ let
     addToSearchPath NODE_PATH ${npmModules}             # ssri
     ${nodejs}/bin/node ${./mkyarnjson.js} ${src + "/yarn.lock"} ${yarnIntFile} > $out
   '';
+  pkgDir = if subdir != null then src + "/" + subdir else src;
 in stdenv.mkDerivation (rec {
-  inherit (npmInfo src) pname version;
+  inherit (npmInfo pkgDir) pname version;
 
   preBuildPhases = [ "yarnConfigPhase" "yarnCachePhase" ];
   preInstallPhases = [ "yarnPackPhase" ];
@@ -72,8 +78,13 @@ in stdenv.mkDerivation (rec {
   '';
 
   buildPhase = ''
-    yarn() { command yarn $yarnFlags "$@"; }
     runHook preBuild
+
+    patchShebangs .
+    yarn() { command yarn $yarnFlags "$@"; }
+
+    ${if subdir != null then "cd ${subdir}" else ""}
+
     ${yarnBuild}
     ${yarnBuildMore}
     runHook postBuild
