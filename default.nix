@@ -142,8 +142,8 @@ with lib; let
 in rec {
   mkNodeModules = { src, packageOverrides, extraEnvVars ? {}, pname, version }:
     let
-      packageJson = src + /package.json;
-      packageLockJson = src + /package-lock.json;
+      packageJson = src + "/package.json";
+      packageLockJson = src + "/package-lock.json";
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in stdenv.mkDerivation ({
@@ -191,7 +191,7 @@ in rec {
     ...
   }:
     let
-      info = fromJSON (readFile (src + /package.json));
+      info = fromJSON (readFile (src + "/package.json"));
       pname = info.name or "unknown-node-package";
       version = info.version or "unknown";
       nodeModules = mkNodeModules { inherit src packageOverrides extraEnvVars pname version; };
