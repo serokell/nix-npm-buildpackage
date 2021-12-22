@@ -86,8 +86,8 @@ let
 in rec {
   mkNodeModules = { src, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
     let
-      packageJson = src + /package.json;
-      packageLockJson = src + /package-lock.json;
+      packageJson = src + "/package.json";
+      packageLockJson = src + "/package-lock.json";
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in
