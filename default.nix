@@ -117,7 +117,7 @@ let
   '';
 
 in rec {
-  mkNodeModules = { src, packageOverrides, extraEnvVars ? { }, pname, version }:
+  mkNodeModules = { src, packageOverrides, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
     let
       packageJson = src + /package.json;
       packageLockJson = src + /package-lock.json;
@@ -126,7 +126,7 @@ in rec {
     in stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
-      buildInputs = [ nodejs jq ];
+      buildInputs = [ nodejs jq ] ++ buildInputs;
 
       npmFlags = npmFlagsNpm;
       buildCommand = ''
@@ -164,13 +164,14 @@ in rec {
     ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
     ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
   '', buildInputs ? [ ], packageOverrides ? { }, extraEnvVars ? { }
+    , extraNodeModulesArgs ? {}
     , # environment variables passed through to `npm ci`
     ... }:
     let
       inherit (npmInfo src) pname version;
-      nodeModules = mkNodeModules {
+      nodeModules = mkNodeModules ({
         inherit src packageOverrides extraEnvVars pname version;
-      };
+      } // extraNodeModulesArgs);
     in stdenv.mkDerivation ({
       inherit pname version;
 
@@ -205,7 +206,7 @@ in rec {
         runHook postInstall
       '';
     } // commonEnv // extraEnvVars
-      // removeAttrs args [ "extraEnvVars" "packageOverrides" ] // {
+      // removeAttrs args [ "extraEnvVars" "packageOverrides" "extraNodeModulesArgs" ] // {
         buildInputs = commonBuildInputs ++ buildInputs;
       });
 
