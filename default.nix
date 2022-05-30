@@ -123,7 +123,9 @@ in rec {
       packageLockJson = src + /package-lock.json;
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
-    in stdenv.mkDerivation ({
+    in
+      assert (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2);
+        stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
       buildInputs = [ nodejs jq ] ++ buildInputs;
