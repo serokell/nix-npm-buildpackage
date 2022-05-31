@@ -79,8 +79,6 @@ let
         "./npm-cache"
     }"
     "--nodedir=${nodejs}"
-    "--no-update-notifier"
-    "--offline"
     "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh"
   ];
 
@@ -124,13 +122,17 @@ in rec {
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in
-      assert (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2);
+      # TODO: this *could* work with some more debugging
+      assert asserts.assertMsg (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2) "node v16 requires lockfile v2 (run npm once)";
+      assert asserts.assertMsg (lock.lockfileVersion <= 3) "nix-npm-buildPackage doesn't support this lock file version";
         stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
       buildInputs = [ nodejs jq ] ++ buildInputs;
 
       npmFlags = npmFlagsNpm;
+      npm_config_offline = true;
+      npm_config_update_notifier = false;
       buildCommand = ''
         # Inside nix-build sandbox $HOME points to a non-existing
         # directory, but npm may try to create this directory (e.g.
@@ -157,7 +159,12 @@ in rec {
         patchShebangs ./node_modules/
 
         mkdir $out
+        mv package-lock.json $out/
         mv ./node_modules $out/
+        mv ./npm-cache $out/
+        rm -rf $out/npm-cache/{_cacache/tmp,_locks}
+        ln -s /tmp $out/npm-cache/_cacache/tmp
+        ln -s /tmp $out/npm-cache/_locks
       '';
     } // extraEnvVars);
 
@@ -189,6 +196,7 @@ in rec {
         patchShebangs .
 
         cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
+        cp ${nodeModules}/package-lock.json .
         chmod -R u+w ./node_modules
       '';
 
@@ -200,16 +208,21 @@ in rec {
 
       installPhase = ''
         runHook preInstall
-        # `npm prune` uses cache for some reason
-        npm prune --production --cache=./npm-prune-cache/
+        npm prune --production
         npm pack --ignore-scripts
         ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
-
         runHook postInstall
       '';
+      npm_config_offline = true;
+      npm_config_update_notifier = false;
+      # npm prune actually installs some packages sometimes
+      npm_config_cache = "${nodeModules}/npm-cache";
+
+      passthru = { inherit nodeModules; };
     } // commonEnv // extraEnvVars
       // removeAttrs args [ "extraEnvVars" "packageOverrides" "extraNodeModulesArgs" ] // {
         buildInputs = commonBuildInputs ++ buildInputs;
+        passthru = { inherit nodeModules; } // (args.passthru or {});
       });
 
   buildYarnPackage = import ./buildYarnPackage.nix {
