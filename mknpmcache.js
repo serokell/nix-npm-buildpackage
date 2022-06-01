@@ -15,14 +15,17 @@ const [nixPkgsFile] = process.argv.slice(2)
 const nixPkgs = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
 async function main(nix, cache) {
-    // TODO: check duplicate hashed entries?
+    const cache_contains = new Set();
     const promises = Object.values(nix).map(async function({path: source, integrity}) {
+        // check for duplicate entry
+        if (cache_contains.has(integrity)) return;
+        cache_contains.add(integrity);
         const {size} = await fs.promises.stat(source);
         const cachePath = cacache_content_path(cache, integrity);
         await fs.promises.mkdir(path.dirname(cachePath), {recursive: true});
-        // TODO: only on npm versions containing https://github.com/npm/cacache/pull/114 :
-        //await fs.promises.symlink(source, cachePath);
-        await fs.promises.copyFile(source, cachePath, fs.constants.EXCL | fs.constants.FICLONE);
+        // TODO: symlink after https://github.com/npm/cacache/pull/114
+        // await fs.promises.symlink(source, cachePath);
+        await fs.promises.copyFile(source, cachePath, fs.constants.FICLONE);
         await cacache_index.insert(cache, `pacote:tarball:file:${source}`, integrity, {size})
     })
     await Promise.all(promises)
