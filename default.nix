@@ -51,20 +51,6 @@ let
     exec bash "$@"
   '';
 
-  npmFlagsNpm = [
-    "--cache=${
-    # `npm ci` had been treating `cache` parameter incorrently since npm 6.11.3, it was fixed in 6.13.5
-    # https://github.com/npm/cli/pull/550
-      if versionAtLeast nodejs.version "10.17.0"
-      && !(versionAtLeast nodejs.version "10.20.0") then
-        "./npm-cache/_cacache"
-      else
-        "./npm-cache"
-    }"
-    "--nodedir=${nodejs}"
-    "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh"
-  ];
-
   commonEnv = {
     XDG_CONFIG_DIRS = ".";
     NO_UPDATE_NOTIFIER = true;
@@ -105,6 +91,7 @@ in rec {
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
     in
+      assert asserts.assertMsg (versionAtLeast nodejs.version "10.20.0") "nix-npm-buildPackages requires at least npm v6.13.5";
       # TODO: this *could* work with some more debugging
       assert asserts.assertMsg (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2) "node v16 requires lockfile v2 (run npm once)";
       # TODO: lock file version 3
@@ -114,9 +101,12 @@ in rec {
 
       buildInputs = [ nodejs jq ] ++ buildInputs;
 
-      npmFlags = npmFlagsNpm;
+      npm_config_cache = "./npm-cache";
+      npm_config_nodejs = "${nodejs}";
       npm_config_offline = true;
+      npm_config_script_shell = "${shellWrap}/bin/npm-shell-wrap.sh";
       npm_config_update_notifier = false;
+
       buildCommand = ''
         # Inside nix-build sandbox $HOME points to a non-existing
         # directory, but npm may try to create this directory (e.g.
@@ -139,7 +129,7 @@ in rec {
         node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
 
         echo 'building node_modules'
-        npm $npmFlags ci
+        npm ci
         patchShebangs ./node_modules/
 
         mkdir $out
