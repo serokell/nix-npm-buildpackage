@@ -8,43 +8,26 @@ let
 
   depFetchOwn = { resolved, integrity, name ? null, ... }:
     let
-      ssri = split "-" integrity;
-      hashType = head ssri;
-      hash = elemAt ssri 2;
       bname = baseNameOf resolved;
       fname = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname then
         bname
       else
         bname + ".tgz";
     in nameValuePair resolved {
-      inherit name bname;
+      inherit name bname integrity;
       path = fetchurl {
         name = fname;
         url = resolved;
-        "${hashType}" = hash;
+        hash = integrity;
       };
     };
-
-  overrideTgz = src:
-    runCommand "${src.name}.tgz" { } ''
-      cp -r --reflink=auto ${src} ./package
-      chmod +w ./package ./package/package.json
-      # scripts are not supported
-      ${jq}/bin/jq '.scripts={}' ${src}/package.json > ./package/package.json
-      tar --sort=name --owner=0:0 --group=0:0 --mtime='UTC 2019-01-01' -czf $out package
-    '';
-
-  overrideToFetch = pkg: { path = "${overrideTgz pkg}"; };
 
   depToFetch = args@{ resolved ? null, dependencies ? { }, ... }:
     (optional (resolved != null) (depFetchOwn args))
     ++ (depsToFetches dependencies);
 
-  # TODO: Make the override semantics similar to yarnCacheInput and
-  #       deduplicate.
-  cacheInput = oFile: iFile: overrides:
-    writeText oFile (toJSON ((listToAttrs (depToFetch iFile))
-      // (builtins.mapAttrs (_: overrideToFetch) overrides)));
+  cacheInput = oFile: iFile:
+    writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -115,7 +98,7 @@ let
   '';
 
 in rec {
-  mkNodeModules = { src, packageOverrides, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
+  mkNodeModules = { src, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
     let
       packageJson = src + /package.json;
       packageLockJson = src + /package-lock.json;
@@ -124,8 +107,9 @@ in rec {
     in
       # TODO: this *could* work with some more debugging
       assert asserts.assertMsg (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2) "node v16 requires lockfile v2 (run npm once)";
-      assert asserts.assertMsg (lock.lockfileVersion <= 3) "nix-npm-buildPackage doesn't support this lock file version";
-        stdenv.mkDerivation ({
+      # TODO: lock file version 3
+      assert asserts.assertMsg (lock.lockfileVersion <= 2) "nix-npm-buildPackage doesn't support this lock file version";
+      stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
       buildInputs = [ nodejs jq ] ++ buildInputs;
@@ -152,16 +136,17 @@ in rec {
         chmod u+w ./package-lock.json
 
         addToSearchPath NODE_PATH ${npmModules} # ssri
-        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock packageOverrides}
+        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
 
         echo 'building node_modules'
         npm $npmFlags ci
         patchShebangs ./node_modules/
 
         mkdir $out
-        mv package-lock.json $out/
         mv ./node_modules $out/
+        # add npm-cache because npm prune wants to change some pkgs
         mv ./npm-cache $out/
+        # npm wants to write to this cache
         rm -rf $out/npm-cache/{_cacache/tmp,_locks}
         ln -s /tmp $out/npm-cache/_cacache/tmp
         ln -s /tmp $out/npm-cache/_locks
@@ -172,19 +157,22 @@ in rec {
     # this is what npm runs by default, only run when it exists
     ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
     ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
-  '', buildInputs ? [ ], packageOverrides ? { }, extraEnvVars ? { }
+  '', buildInputs ? [ ], extraEnvVars ? { }
     , extraNodeModulesArgs ? {}
     , # environment variables passed through to `npm ci`
     ... }:
     let
       inherit (npmInfo src) pname version;
       nodeModules = mkNodeModules ({
-        inherit src packageOverrides extraEnvVars pname version;
+        inherit src extraEnvVars pname version;
       } // extraNodeModulesArgs);
-    in stdenv.mkDerivation ({
+    in
+      assert asserts.assertMsg (!(args ? packageOverrides)) "buildNpmPackage-packageOverrides is no longer supported";
+      stdenv.mkDerivation ({
       inherit pname version;
 
       configurePhase = ''
+        runHook preConfigure
         export HOME=$(mktemp -d)
         chmod a-w "$HOME"
 
@@ -196,8 +184,8 @@ in rec {
         patchShebangs .
 
         cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
-        cp ${nodeModules}/package-lock.json .
         chmod -R u+w ./node_modules
+        runHook postConfigure
       '';
 
       buildPhase = ''
@@ -220,7 +208,7 @@ in rec {
 
       passthru = { inherit nodeModules; };
     } // commonEnv // extraEnvVars
-      // removeAttrs args [ "extraEnvVars" "packageOverrides" "extraNodeModulesArgs" ] // {
+      // removeAttrs args [ "extraEnvVars" "extraNodeModulesArgs" ] // {
         buildInputs = commonBuildInputs ++ buildInputs;
         passthru = { inherit nodeModules; } // (args.passthru or {});
       });

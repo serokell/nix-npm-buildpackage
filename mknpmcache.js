@@ -1,6 +1,7 @@
-const assert = require("assert")
 const fs = require("fs")
-const pacote = require("pacote")
+const path = require("path")
+const cacache_index = require("cacache/lib/entry-index.js")
+const cacache_content_path = require("cacache/lib/content/path.js")
 
 const USAGE = "node mknpmcache.js npm-cache-input.json"
 
@@ -11,56 +12,20 @@ if (process.argv.length != USAGE.split(/\s+/).length) {
 
 const [nixPkgsFile] = process.argv.slice(2)
 
-const pkgLockFile = "./package-lock.json"
-const lock = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
 const nixPkgs = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
-// "node_modules/fsevents/node_modules/@asdf/g" -> "@asdf/g"
-function baseNameOf(pkgName) {
-    const entries = pkgName.split('node_modules/')
-    return entries[entries.length - 1]
-}
-
-function traverseDeps(pkg, fn) {
-    Object.entries(pkg.dependencies).forEach(([name, dep]) => {
-        fn(name, dep)
-        if (dep.dependencies) traverseDeps(dep, fn)
+async function main(nix, cache) {
+    // TODO: check duplicate hashed entries?
+    const promises = Object.values(nix).map(async function({path: source, integrity}) {
+        const {size} = await fs.promises.stat(source);
+        const cachePath = cacache_content_path(cache, integrity);
+        await fs.promises.mkdir(path.dirname(cachePath), {recursive: true});
+        // TODO: only on npm versions containing https://github.com/npm/cacache/pull/114 :
+        //await fs.promises.symlink(source, cachePath);
+        await fs.promises.copyFile(source, cachePath, fs.constants.EXCL | fs.constants.FICLONE);
+        await cacache_index.insert(cache, `pacote:tarball:file:${source}`, integrity, {size})
     })
-}
-
-async function main(lockfile, nix, cache) {
-    const promises = Object.keys(nix).map(async function(url) {
-        const tar = nix[url].path
-        const manifest = await pacote.manifest(tar, {
-            offline: true,
-            cache
-        })
-        return [url, manifest._integrity]
-    })
-    const hashes = new Map(await Promise.all(promises))
-    const traverseFn = (name, dep) => {
-        if (hashes.has(baseNameOf(name))) {
-            console.log("overriding package", name)
-            dep.integrity = hashes.get(name)
-            return
-        }
-        if (!dep.integrity || !dep.resolved) {
-            return
-        }
-        if (dep.integrity.startsWith("sha1-")) {
-            assert(hashes.has(dep.resolved))
-            dep.integrity = hashes.get(dep.resolved)
-        } else {
-            assert(dep.integrity == hashes.get(dep.resolved))
-        }
-    };
-    if (lockfile.dependencies)
-        traverseDeps(lockfile, traverseFn)
-    if (lockfile.packages)
-        for (const [name, dep] of Object.entries(lockfile.packages))
-            traverseFn(name, dep)
-    // rewrite lock file to use sha512 hashes from pacote and overrides
-    fs.writeFileSync(pkgLockFile, JSON.stringify(lockfile, null, 2))
+    await Promise.all(promises)
 }
 
 process.on("unhandledRejection", error => {
@@ -68,4 +33,4 @@ process.on("unhandledRejection", error => {
     process.exit(1)
 })
 
-main(lock, nixPkgs, "./npm-cache/_cacache")
+main(nixPkgs, "./npm-cache/_cacache")
