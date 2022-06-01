@@ -184,9 +184,14 @@ in rec {
         runHook postBuild
       '';
 
+      dontNpmPrune = false;
+
       installPhase = ''
         runHook preInstall
-        npm prune --production
+        if [ -z "''${dontNpmPrune-}" ]; then
+          echo "running npm prune --production"
+          npm prune --production
+        fi
         npm pack --ignore-scripts
         ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
         runHook postInstall
