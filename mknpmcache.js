@@ -1,57 +1,39 @@
-const assert        = require("assert")
-const fs            = require("fs")
-const pacote        = require("pacote")
+const fs = require("fs")
+const path = require("path")
+const cacache_index = require("cacache/lib/entry-index.js")
+const cacache_content_path = require("cacache/lib/content/path.js")
 
-const USAGE         = "node mknpmcache.js npm-cache-input.json"
+const USAGE = "node mknpmcache.js npm-cache-input.json"
 
 if (process.argv.length != USAGE.split(/\s+/).length) {
-  console.error("Usage:", USAGE)
-  process.exit(1)
+    console.error("Usage:", USAGE)
+    process.exit(1)
 }
 
 const [nixPkgsFile] = process.argv.slice(2)
 
-const pkgLockFile   = "./package-lock.json"
-const lock          = JSON.parse(fs.readFileSync(pkgLockFile, "utf8"))
-const nixPkgs       = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
+const nixPkgs = JSON.parse(fs.readFileSync(nixPkgsFile, "utf8"))
 
-function traverseDeps(pkg, fn) {
-  Object.entries(pkg.dependencies).forEach(([name, dep]) => {
-    fn(name, dep)
-    if (dep.dependencies) traverseDeps(dep, fn)
-  })
-}
-
-async function main(lockfile, nix, cache) {
-  const promises = Object.keys(nix).map(async function (url) {
-    const tar       = nix[url].path
-    const manifest  = await pacote.manifest(tar, { offline: true, cache })
-    return [url, manifest._integrity]
-  })
-  const hashes = new Map(await Promise.all(promises))
-  traverseDeps(lockfile, (name, dep) => {
-    if (hashes.has(name)) {
-      console.log("overriding package", name)
-      dep.integrity = hashes.get(name)
-      return
-    }
-    if (!dep.integrity || !dep.resolved) {
-      return
-    }
-    if (dep.integrity.startsWith("sha1-")) {
-      assert(hashes.has(dep.resolved))
-      dep.integrity = hashes.get(dep.resolved)
-    } else {
-      assert(dep.integrity == hashes.get(dep.resolved))
-    }
-  })
-  // rewrite lock file to use sha512 hashes from pacote and overrides
-  fs.writeFileSync(pkgLockFile, JSON.stringify(lockfile, null, 2))
+async function main(nix, cache) {
+    const cache_contains = new Set();
+    const promises = Object.values(nix).map(async function({path: source, integrity}) {
+        // check for duplicate entry
+        if (cache_contains.has(integrity)) return;
+        cache_contains.add(integrity);
+        const {size} = await fs.promises.stat(source);
+        const cachePath = cacache_content_path(cache, integrity);
+        await fs.promises.mkdir(path.dirname(cachePath), {recursive: true});
+        // TODO: symlink after https://github.com/npm/cacache/pull/114
+        // await fs.promises.symlink(source, cachePath);
+        await fs.promises.copyFile(source, cachePath, fs.constants.FICLONE);
+        await cacache_index.insert(cache, `pacote:tarball:file:${source}`, integrity, {size})
+    })
+    await Promise.all(promises)
 }
 
 process.on("unhandledRejection", error => {
-  console.log("unhandledRejection", error.message)
-  process.exit(1)
+    console.log("unhandledRejection", error.message)
+    process.exit(1)
 })
 
-main(lock, nixPkgs, "./npm-cache/_cacache")
+main(nixPkgs, "./npm-cache/_cacache")

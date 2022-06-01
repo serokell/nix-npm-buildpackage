@@ -8,43 +8,26 @@ let
 
   depFetchOwn = { resolved, integrity, name ? null, ... }:
     let
-      ssri = split "-" integrity;
-      hashType = head ssri;
-      hash = elemAt ssri 2;
       bname = baseNameOf resolved;
       fname = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname then
         bname
       else
         bname + ".tgz";
     in nameValuePair resolved {
-      inherit name bname;
+      inherit name bname integrity;
       path = fetchurl {
         name = fname;
         url = resolved;
-        "${hashType}" = hash;
+        hash = integrity;
       };
     };
-
-  overrideTgz = src:
-    runCommand "${src.name}.tgz" { } ''
-      cp -r --reflink=auto ${src} ./package
-      chmod +w ./package ./package/package.json
-      # scripts are not supported
-      ${jq}/bin/jq '.scripts={}' ${src}/package.json > ./package/package.json
-      tar --sort=name --owner=0:0 --group=0:0 --mtime='UTC 2019-01-01' -czf $out package
-    '';
-
-  overrideToFetch = pkg: { path = "${overrideTgz pkg}"; };
 
   depToFetch = args@{ resolved ? null, dependencies ? { }, ... }:
     (optional (resolved != null) (depFetchOwn args))
     ++ (depsToFetches dependencies);
 
-  # TODO: Make the override semantics similar to yarnCacheInput and
-  #       deduplicate.
-  cacheInput = oFile: iFile: overrides:
-    writeText oFile (toJSON ((listToAttrs (depToFetch iFile))
-      // (builtins.mapAttrs (_: overrideToFetch) overrides)));
+  cacheInput = oFile: iFile:
+    writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
@@ -67,22 +50,6 @@ let
     popd
     exec bash "$@"
   '';
-
-  npmFlagsNpm = [
-    "--cache=${
-    # `npm ci` had been treating `cache` parameter incorrently since npm 6.11.3, it was fixed in 6.13.5
-    # https://github.com/npm/cli/pull/550
-      if versionAtLeast nodejs.version "10.17.0"
-      && !(versionAtLeast nodejs.version "10.20.0") then
-        "./npm-cache/_cacache"
-      else
-        "./npm-cache"
-    }"
-    "--nodedir=${nodejs}"
-    "--no-update-notifier"
-    "--offline"
-    "--script-shell=${shellWrap}/bin/npm-shell-wrap.sh"
-  ];
 
   commonEnv = {
     XDG_CONFIG_DIRS = ".";
@@ -117,18 +84,29 @@ let
   '';
 
 in rec {
-  mkNodeModules = { src, packageOverrides, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
+  mkNodeModules = { src, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
     let
       packageJson = src + /package.json;
       packageLockJson = src + /package-lock.json;
       info = fromJSON (readFile packageJson);
       lock = fromJSON (readFile packageLockJson);
-    in stdenv.mkDerivation ({
+    in
+      assert asserts.assertMsg (versionAtLeast nodejs.version "10.20.0") "nix-npm-buildPackages requires at least npm v6.13.5";
+      # TODO: this *could* work with some more debugging
+      assert asserts.assertMsg (versionAtLeast nodejs.version "16" -> lock.lockfileVersion >= 2) "node v16 requires lockfile v2 (run npm once)";
+      # TODO: lock file version 3
+      assert asserts.assertMsg (lock.lockfileVersion <= 2) "nix-npm-buildPackage doesn't support this lock file version";
+      stdenv.mkDerivation ({
       name = "${pname}-${version}-node-modules";
 
       buildInputs = [ nodejs jq ] ++ buildInputs;
 
-      npmFlags = npmFlagsNpm;
+      npm_config_cache = "./npm-cache";
+      npm_config_nodejs = "${nodejs}";
+      npm_config_offline = true;
+      npm_config_script_shell = "${shellWrap}/bin/npm-shell-wrap.sh";
+      npm_config_update_notifier = false;
+
       buildCommand = ''
         # Inside nix-build sandbox $HOME points to a non-existing
         # directory, but npm may try to create this directory (e.g.
@@ -148,14 +126,20 @@ in rec {
         chmod u+w ./package-lock.json
 
         addToSearchPath NODE_PATH ${npmModules} # ssri
-        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock packageOverrides}
+        node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
 
         echo 'building node_modules'
-        npm $npmFlags ci
+        npm ci
         patchShebangs ./node_modules/
 
         mkdir $out
         mv ./node_modules $out/
+        # add npm-cache because npm prune wants to change some pkgs
+        mv ./npm-cache $out/
+        # npm wants to write to this cache
+        rm -rf $out/npm-cache/{_cacache/tmp,_locks}
+        ln -s /tmp $out/npm-cache/_cacache/tmp
+        ln -s /tmp $out/npm-cache/_locks
       '';
     } // extraEnvVars);
 
@@ -163,19 +147,22 @@ in rec {
     # this is what npm runs by default, only run when it exists
     ${jq}/bin/jq -e '.scripts.prepublish' package.json >/dev/null && npm run prepublish
     ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
-  '', buildInputs ? [ ], packageOverrides ? { }, extraEnvVars ? { }
+  '', buildInputs ? [ ], extraEnvVars ? { }
     , extraNodeModulesArgs ? {}
     , # environment variables passed through to `npm ci`
     ... }:
     let
       inherit (npmInfo src) pname version;
       nodeModules = mkNodeModules ({
-        inherit src packageOverrides extraEnvVars pname version;
+        inherit src extraEnvVars pname version;
       } // extraNodeModulesArgs);
-    in stdenv.mkDerivation ({
+    in
+      assert asserts.assertMsg (!(args ? packageOverrides)) "buildNpmPackage-packageOverrides is no longer supported";
+      stdenv.mkDerivation ({
       inherit pname version;
 
       configurePhase = ''
+        runHook preConfigure
         export HOME=$(mktemp -d)
         chmod a-w "$HOME"
 
@@ -188,6 +175,7 @@ in rec {
 
         cp --reflink=auto -r ${nodeModules}/node_modules ./node_modules
         chmod -R u+w ./node_modules
+        runHook postConfigure
       '';
 
       buildPhase = ''
@@ -196,18 +184,28 @@ in rec {
         runHook postBuild
       '';
 
+      dontNpmPrune = false;
+
       installPhase = ''
         runHook preInstall
-        # `npm prune` uses cache for some reason
-        npm prune --production --cache=./npm-prune-cache/
+        if [ -z "''${dontNpmPrune-}" ]; then
+          echo "running npm prune --production"
+          npm prune --production
+        fi
         npm pack --ignore-scripts
         ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
-
         runHook postInstall
       '';
+      npm_config_offline = true;
+      npm_config_update_notifier = false;
+      # npm prune actually installs some packages sometimes
+      npm_config_cache = "${nodeModules}/npm-cache";
+
+      passthru = { inherit nodeModules; };
     } // commonEnv // extraEnvVars
-      // removeAttrs args [ "extraEnvVars" "packageOverrides" "extraNodeModulesArgs" ] // {
+      // removeAttrs args [ "extraEnvVars" "extraNodeModulesArgs" ] // {
         buildInputs = commonBuildInputs ++ buildInputs;
+        passthru = { inherit nodeModules; } // (args.passthru or {});
       });
 
   buildYarnPackage = import ./buildYarnPackage.nix {

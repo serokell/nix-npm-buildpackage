@@ -1,8 +1,6 @@
 ## Description
 
-<!--
-[![Build Status](https://travis-ci.org/serokell/nix-npm-buildpackage.svg?branch=master)](https://travis-ci.org/serokell/nix-npm-buildpackage)
--->
+![CI](https://github.com/serokell/nix-npm-buildpackage/actions/workflows/test.yml/badge.svg?branch=master)
 
 nix-npm-buildpackage - build nix packages that use npm/yarn packages
 
