@@ -2,6 +2,11 @@ const fs = require("fs")
 const path = require("path")
 const cacache_index = require("cacache/lib/entry-index.js")
 const cacache_content_path = require("cacache/lib/content/path.js")
+const cacache_package = require("cacache/package.json")
+const semver = require("semver")
+
+// https://github.com/npm/cacache/pull/114
+const HAS_CACACHE_SYMLINK = semver.gte(cacache_package.version, "16.1.1")
 
 const USAGE = "node mknpmcache.js npm-cache-input.json"
 
@@ -24,8 +29,10 @@ async function main(nix, cache) {
         const cachePath = cacache_content_path(cache, integrity);
         await fs.promises.mkdir(path.dirname(cachePath), {recursive: true});
         // TODO: symlink after https://github.com/npm/cacache/pull/114
-        // await fs.promises.symlink(source, cachePath);
-        await fs.promises.copyFile(source, cachePath, fs.constants.FICLONE);
+        if (HAS_CACACHE_SYMLINK)
+            await fs.promises.symlink(source, cachePath);
+        else
+            await fs.promises.copyFile(source, cachePath, fs.constants.FICLONE);
         await cacache_index.insert(cache, `pacote:tarball:file:${source}`, integrity, {size})
     })
     await Promise.all(promises)
