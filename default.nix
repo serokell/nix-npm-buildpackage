@@ -2,7 +2,7 @@
 , fetchurl, makeWrapper, nodejs, yarn, jq }:
 with lib;
 let
-  inherit (builtins) fromJSON toJSON split removeAttrs toFile;
+  inherit (builtins) fromJSON toJSON split hasAttr attrNames removeAttrs replaceStrings toFile;
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
@@ -61,12 +61,23 @@ let
 
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
-  untarAndWrap = name: cmds: ''
+  untarAndWrap = name: info: cmds: ''
     shopt -s nullglob
     mkdir -p $out/bin
     tar xzvf ./${name}.tgz -C $out --strip-components=1
     if [ "$installJavascript" = "1" ]; then
       cp -R node_modules $out/
+  ''
+  + (if (hasAttr "bin" info) then ''
+      # no need to have whatever *.js is in $out/bin be runnable after the resulting package is "installed"
+      chmod -x $out/bin/*
+      ${
+        concatStringsSep ";" (map (exe: ''
+          makeWrapper ${nodejs}/bin/node $out/bin/${exe} --add-flags "$out/${info.bin.${exe}}" --run "cd $out"
+        '')
+          (attrNames info.bin))
+      }
+  '' else ''
       patchShebangs $out/bin
       for i in $out/bin/*.js; do
         makeWrapper ${nodejs}/bin/node $out/bin/$(basename $i .js) \
@@ -80,6 +91,8 @@ let
             } --run "cd $out" --prefix PATH : ${stdenv.shellPackage}/bin'')
           cmds)
       }
+  '')
+  + ''
     fi
   '';
 
@@ -152,7 +165,7 @@ in rec {
     , # environment variables passed through to `npm ci`
     ... }:
     let
-      inherit (npmInfo src) pname version;
+      inherit (npmInfo src) info pname version;
       nodeModules = mkNodeModules ({
         inherit src extraEnvVars pname version;
       } // extraNodeModulesArgs);
@@ -193,7 +206,7 @@ in rec {
           npm prune --production
         fi
         npm pack --ignore-scripts
-        ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
+        ${untarAndWrap "${pname}-${version}" info [ "${nodejs}/bin/npm" ]}
         runHook postInstall
       '';
       npm_config_offline = true;
