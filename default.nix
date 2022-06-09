@@ -2,7 +2,7 @@
 , fetchurl, makeWrapper, nodejs, yarn, jq }:
 with lib;
 let
-  inherit (builtins) fromJSON toJSON split removeAttrs toFile;
+  inherit (builtins) fromJSON toJSON split removeAttrs replaceStrings toFile;
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
@@ -59,12 +59,14 @@ let
 
   commonBuildInputs = [ nodejs makeWrapper ]; # TODO: git?
 
+  unScope = replaceStrings [ "@" "/" ] [ "" "-" ];
+
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
   untarAndWrap = name: cmds: ''
     shopt -s nullglob
     mkdir -p $out/bin
-    tar xzvf ./${name}.tgz -C $out --strip-components=1
+    tar xzvf ${unScope name}.tgz -C $out --strip-components=1
     if [ "$installJavascript" = "1" ]; then
       cp -R node_modules $out/
       patchShebangs $out/bin
