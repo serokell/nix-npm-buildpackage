@@ -213,6 +213,6 @@ in rec {
   buildYarnPackage = import ./buildYarnPackage.nix {
     inherit lib npmInfo runCommand fetchurl npmModules writeScriptBin nodejs
       yarn patchShebangs writeText stdenv untarAndWrap depToFetch commonEnv
-      makeWrapper writeShellScriptBin;
+      makeWrapper writeShellScriptBin unScope;
   };
 }

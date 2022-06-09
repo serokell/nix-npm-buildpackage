@@ -1,6 +1,6 @@
 { npmInfo, npmModules, untarAndWrap, depToFetch, commonEnv, lib, runCommand
 , fetchurl, writeScriptBin, nodejs, yarn, patchShebangs, writeText, stdenv
-, makeWrapper, writeShellScriptBin }:
+, makeWrapper, writeShellScriptBin, unScope }:
 let
 
   yarnpkg-lockfile = fetchurl {
@@ -63,6 +63,7 @@ in stdenv.mkDerivation (rec {
 
   preBuildPhases = [ "yarnConfigPhase" "yarnCachePhase" ];
   preInstallPhases = [ "yarnPackPhase" ];
+  outFile = unScope "${pname}-${version}";
 
   # TODO
   yarnConfigPhase = ''
@@ -91,12 +92,12 @@ in stdenv.mkDerivation (rec {
 
   # TODO: install --production?
   yarnPackPhase = ''
-    yarn pack --ignore-scripts --filename "${pname}-${version}.tgz"
+    yarn pack --ignore-scripts --filename "${outFile}.tgz"
   '';
 
   installPhase = ''
     runHook preInstall
-    ${untarAndWrap "${pname}-${version}" [ "${yarn}/bin/yarn" ]}
+    ${untarAndWrap "${outFile}" [ "${yarn}/bin/yarn" ]}
     runHook postInstall
   '';
 } // commonEnv // removeAttrs args [ "integreties" "packageOverrides" ] // {
