@@ -59,12 +59,14 @@ let
 
   commonBuildInputs = [ nodejs makeWrapper ]; # TODO: git?
 
+  unScope = replaceStrings [ "@" "/" ] [ "" "-" ];
+
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
   untarAndWrap = name: info: cmds: ''
     shopt -s nullglob
     mkdir -p $out/bin
-    tar xzvf ./${name}.tgz -C $out --strip-components=1
+    tar xzvf ${unScope name}.tgz -C $out --strip-components=1
     if [ "$installJavascript" = "1" ]; then
       cp -R node_modules $out/
   ''
@@ -224,6 +226,6 @@ in rec {
   buildYarnPackage = import ./buildYarnPackage.nix {
     inherit lib npmInfo runCommand fetchurl npmModules writeScriptBin nodejs
       yarn patchShebangs writeText stdenv untarAndWrap depToFetch commonEnv
-      makeWrapper writeShellScriptBin;
+      makeWrapper writeShellScriptBin unScope;
   };
 }
