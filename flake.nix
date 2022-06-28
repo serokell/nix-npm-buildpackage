@@ -21,9 +21,19 @@
           nodejs = nixpkgs'.nodejs-18_x;
         };
       };
+      npm-override-nodejs = import ./tests/buildNpmPackage {
+        pkgs = nixpkgs';
+        nodejs = nixpkgs'.nodejs-18_x;
+        npm-buildpackage = self.legacyPackages.x86_64-linux;
+      };
       yarn = import ./tests/buildYarnPackage {
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
         npm-buildpackage = self.legacyPackages.x86_64-linux;
+      };
+      yarn-override-nodejs = import ./tests/buildYarnPackage {
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        npm-buildpackage = self.legacyPackages.x86_64-linux;
+        nodejs = nixpkgs'.nodejs-18_x;
       };
     };
   };

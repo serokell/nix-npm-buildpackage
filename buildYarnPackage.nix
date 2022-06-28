@@ -15,6 +15,16 @@ let
       final = with lib; fix (foldl' (flip extends) (const self) overrides);
     in writeText oFile (builtins.toJSON final);
 
+  nodejsDefault = nodejs;
+  yarnDefault = yarn;
+
+in args@{ src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? { }
+        , packageOverrides ? [ ], buildInputs ? [ ], yarnFlags ? [ ],
+        subdir ? null
+        , nodejs ? nodejsDefault
+, ... }:
+let
+  yarn = yarnDefault.override { nodejs = nodejs; };
   yarnWrapper = writeScriptBin "yarn" ''
     #!${nodejs}/bin/node
     const { promisify } = require('util')
@@ -42,11 +52,6 @@ let
   '';
 
   yarnCmd = "${yarnWrapper}/bin/yarn";
-in args@{ src, yarnBuild ? "yarn", yarnBuildMore ? "", integreties ? { }
-        , packageOverrides ? [ ], buildInputs ? [ ], yarnFlags ? [ ],
-          subdir ? null
-, ... }:
-let
   deps = { dependencies = builtins.fromJSON (builtins.readFile yarnJson); };
   yarnIntFile = writeText "integreties.json" (builtins.toJSON integreties);
   yarnJson = runCommand "yarn.json" { } ''
@@ -54,7 +59,7 @@ let
     mkdir -p node_modules/@yarnpkg/lockfile
     tar -C $_ --strip-components=1 -xf ${yarnpkg-lockfile}
     addToSearchPath NODE_PATH $PWD/node_modules         # @yarnpkg/lockfile
-    addToSearchPath NODE_PATH ${npmModules}             # ssri
+    addToSearchPath NODE_PATH ${npmModules nodejs}      # ssri
     ${nodejs}/bin/node ${./mkyarnjson.js} ${src + "/yarn.lock"} ${yarnIntFile} > $out
   '';
   pkgDir = if subdir != null then src + "/" + subdir else src;
@@ -97,7 +102,7 @@ in stdenv.mkDerivation (rec {
 
   installPhase = ''
     runHook preInstall
-    ${untarAndWrap "${outFile}" [ "${yarn}/bin/yarn" ]}
+    ${untarAndWrap "${outFile}" [ "${yarn}/bin/yarn" ] nodejs}
     runHook postInstall
   '';
 } // commonEnv // removeAttrs args [ "integreties" "packageOverrides" ] // {

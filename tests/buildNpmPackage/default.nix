@@ -1,6 +1,7 @@
-{ pkgs, npm-buildpackage }:
+{ pkgs, npm-buildpackage, nodejs ? pkgs.nodejs }:
 
 npm-buildpackage.buildNpmPackage {
+  inherit nodejs;
   src = pkgs.lib.cleanSourceWith {
     name = "simple-test-source";
     src = ./.;

@@ -78,7 +78,7 @@ let
     version = info.version or "unknown";
   };
 
-  npmModules = "${nodejs}/lib/node_modules/npm/node_modules";
+  npmModules = nodejs: "${nodejs}/lib/node_modules/npm/node_modules";
 
   shellWrap = writeShellScriptBin "npm-shell-wrap.sh" ''
     set -e
@@ -94,13 +94,11 @@ let
     installJavascript = true;
   };
 
-  commonBuildInputs = [ nodejs makeWrapper ]; # TODO: git?
-
   unScope = replaceStrings [ "@" "/" ] [ "" "-" ];
 
   # unpack the .tgz into output directory and add npm wrapper
   # TODO: "cd $out" vs NIX_NPM_BUILDPACKAGE_OUT=$out?
-  untarAndWrap = name: cmds: ''
+  untarAndWrap = name: cmds: nodejs: ''
     shopt -s nullglob
     mkdir -p $out/bin
     tar xzvf ${unScope name}.tgz -C $out --strip-components=1
@@ -122,8 +120,10 @@ let
     fi
   '';
 
+  nodejsDefault = nodejs;
+
 in rec {
-  mkNodeModules = { src, extraEnvVars ? { }, pname, version, buildInputs ? [] }:
+  mkNodeModules = { src, extraEnvVars ? { }, pname, version, nodejs ? nodejsDefault, buildInputs ? [] }:
     let
       packageJson = src + "/package.json";
       packageLockJson = src + "/package-lock.json";
@@ -164,7 +164,7 @@ in rec {
         echo 'building npm cache'
         chmod u+w ./package-lock.json
 
-        addToSearchPath NODE_PATH ${npmModules} # ssri
+        addToSearchPath NODE_PATH ${npmModules nodejs} # ssri
         node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
 
         echo 'building node_modules'
@@ -185,12 +185,13 @@ in rec {
     ${jq}/bin/jq -e '.scripts.prepare' package.json >/dev/null && npm run prepare
   '', buildInputs ? [ ], extraEnvVars ? { }
     , extraNodeModulesArgs ? {}
+    , nodejs ? nodejsDefault
     , # environment variables passed through to `npm ci`
     ... }:
     let
       inherit (npmInfo src) pname version;
       nodeModules = mkNodeModules ({
-        inherit src extraEnvVars pname version;
+        inherit src extraEnvVars pname version nodejs;
       } // extraNodeModulesArgs);
     in
       assert asserts.assertMsg (!(args ? packageOverrides)) "buildNpmPackage-packageOverrides is no longer supported";
@@ -232,7 +233,7 @@ in rec {
           npm prune --production
         fi
         npm pack --ignore-scripts
-        ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ]}
+        ${untarAndWrap "${pname}-${version}" [ "${nodejs}/bin/npm" ] nodejs}
         runHook postInstall
       '';
       npm_config_offline = true;
@@ -241,7 +242,7 @@ in rec {
       passthru = { inherit nodeModules; };
     } // commonEnv // extraEnvVars
       // removeAttrs args [ "extraEnvVars" "extraNodeModulesArgs" ] // {
-        buildInputs = commonBuildInputs ++ buildInputs;
+        buildInputs = [ nodejs makeWrapper ] ++ buildInputs;
         passthru = { inherit nodeModules; } // (args.passthru or {});
       });
 
