@@ -108,17 +108,10 @@ in rec {
       npm_config_offline = true;
       npm_config_script_shell = "${shellWrap}/bin/npm-shell-wrap.sh";
       npm_config_update_notifier = false;
+      npm_config_nodedir = "${nodejs}";
 
       buildCommand = ''
-        # Inside nix-build sandbox $HOME points to a non-existing
-        # directory, but npm may try to create this directory (e.g.
-        # when you run `npm install` or `npm prune`) and will succeed
-        # if you have a single-user nix installation (because / is
-        # writable in this case), causing different behavior for
-        # single-user and multi-user nix. Set $HOME to a read-only
-        # directory to fix it
         export HOME=$(mktemp -d)
-        chmod a-w "$HOME"
 
         # do not run the toplevel lifecycle scripts, we only do dependencies
         cp ${toFile "package.json" (builtins.toJSON (info // { scripts = { }; }))} ./package.json
