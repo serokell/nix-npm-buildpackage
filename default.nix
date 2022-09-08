@@ -167,6 +167,9 @@ in rec {
         runHook preConfigure
         export HOME=$(mktemp -d)
         chmod a-w "$HOME"
+        # npm prune actually installs some packages sometimes
+        cp -RL --no-preserve=mode "${nodeModules}/npm-cache" "$PWD/npm-cache"
+        export npm_config_cache="$PWD/npm-cache"
 
         if [[ -e ./node_modules ]]; then
           echo 'WARNING: node_modules directory already exists, removing it'
@@ -200,8 +203,6 @@ in rec {
       '';
       npm_config_offline = true;
       npm_config_update_notifier = false;
-      # npm prune actually installs some packages sometimes
-      npm_config_cache = "${nodeModules}/npm-cache";
 
       passthru = { inherit nodeModules; };
     } // commonEnv // extraEnvVars
