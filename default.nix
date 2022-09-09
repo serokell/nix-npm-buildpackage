@@ -1,25 +1,57 @@
 { writeShellScriptBin, writeText, runCommand, writeScriptBin, stdenv, lib
-, fetchurl, makeWrapper, nodejs, yarn, jq }:
+, fetchurl, fetchgit, makeWrapper, nodejs, yarn, jq, gnutar }:
 with lib;
 let
   inherit (builtins) fromJSON toJSON split removeAttrs replaceStrings toFile;
 
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
-  depFetchOwn = { resolved, integrity, name ? null, ... }:
+  makeTarball = name: path: stdenv.mkDerivation {
+    inherit name;
+    buildInputs = [ gnutar ];
+    phases = [ "packPhase" ];
+    packPhase = ''
+      cp -R "${path}" package
+      chmod -R +w package
+      tar --format=posix -caf $out -C package .
+    '';
+  };
+
+  depFetchOwn = { resolved, integrity, name ? null, rev ? null, version ? null, ... }:
     let
       bname = baseNameOf resolved;
       fname = if hasSuffix ".tgz" bname || hasSuffix ".tar.gz" bname then
-        bname
+        # If name is @author/lib, then tarball is expected to be @author-bname.tar.gz
+        if ! isNull name && substring 0 1 name == "@"
+        then elemAt (splitString "/" name) 0 + "-" + bname
+        # If name doesn't start with @, then the tarball is expected to be bname.tar.gz
+        else bname
       else
-        bname + ".tgz";
+        # If bname isn't a string that has '*.tar.gz' format
+        # (which is true for direct git dependencies or dependencies from github),
+        # a yarn offline cache archive for the corresponding dependency is expected to be tarball with 'bname' name
+        # without extension >:(
+        # Note that such dependencies also don't have integrity and it has to be provided manually
+        # in 'integreties' attribute of 'buildYarnPackage'
+        replaceStrings ["#"] ["-"] bname;
+      # 'rev' is set only for direct git dependencies
+      path = if ! isNull rev
+        then let
+          gitURI = replaceStrings ["git+"] [""] resolved;
+          protocol = elemAt (splitString "://" gitURI) 0;
+          path = replaceStrings [":"] ["/"] (elemAt (splitString "://" gitURI) 1);
+        in
+        makeTarball fname (builtins.fetchGit {
+          url = protocol + "://" + path;
+          rev = rev;
+        })
+        else fetchurl {
+          name = fname;
+          url = resolved;
+          hash = integrity;
+        };
     in nameValuePair resolved {
-      inherit name bname integrity;
-      path = fetchurl {
-        name = fname;
-        url = resolved;
-        hash = integrity;
-      };
+      inherit name fname integrity path;
     };
 
   depToFetch = args@{ resolved ? null, dependencies ? { }, ... }:

@@ -31,11 +31,14 @@ Object.keys(yarnJson).forEach(key => {
   if (key in deps) return
   const dep         = yarnJson[key]
   const [name, vsn] = splitNameVsn(key)
-  const [url, sha1] = dep.resolved.split("#", 2)
-  const integrity   = dep.integrity || integrities[url] ||
-                      (sha1 && ssri.fromHex(sha1, "sha1").toString())
-  assert(integrity, "missing integrity for " + JSON.stringify(dep))
-  deps[key]         = { name, resolved: url, integrity }
+  version = dep.version
+  const [url, hash] = dep.resolved.split("#", 2)
+  const isGitDependency = url.startsWith("git+")
+  const integrity   = dep.integrity || integrities[isGitDependency ? dep.resolved : url] ||
+                      (!isGitDependency && hash && ssri.fromHex(hash, "sha1").toString())
+  assert(integrity || isGitDependency, "missing integrity for " + JSON.stringify(dep))
+  const resolved = isGitDependency ? url + "#" + hash : url
+  deps[key]         = { rev: isGitDependency ? hash : undefined, name, version, resolved, integrity }
 })
 
 console.log(JSON.stringify(deps, null, 2))
