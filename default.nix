@@ -206,7 +206,7 @@ in rec {
         export HOME=$(mktemp -d)
         chmod a-w "$HOME"
         # npm prune actually installs some packages sometimes
-        cp -fR --no-preserve=mode "${nodeModules}/npm-cache" "$PWD/npm-cache"
+        cp -fR${lib.optionalString (!stdenv.isDarwin) "L"} --no-preserve=mode "${nodeModules}/npm-cache" "$PWD/npm-cache"
 
         export npm_config_cache="$PWD/npm-cache"
 
