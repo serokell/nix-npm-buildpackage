@@ -1,0 +1,17 @@
+{
+  "name": "simple-test",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p out && webpack --version >> out/result"
+  },
+  "files": [
+    "out"
+  ],
+  "dependencies": {
+    "left-pad": "git+https://github.com/left-pad/left-pad.git",
+    "webpack": "^4.41.2",
+    "webpack-cli": "^3.3.10",
+    "solium": "ObsidianLabs/Ethlint"
+  }
+}

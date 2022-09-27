@@ -21,7 +21,7 @@
           nodejs = nixpkgs'.nodejs-18_x;
         };
       };
-      yarn = import ./tests/buildNpmPackage/yarn.nix {
+      yarn = import ./tests/buildYarnPackage {
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
         npm-buildpackage = self.legacyPackages.x86_64-linux;
       };
