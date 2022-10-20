@@ -4,6 +4,11 @@ with lib;
 let
   inherit (builtins) fromJSON toJSON split removeAttrs replaceStrings toFile;
 
+  nodeSources = runCommand "node-sources" {} ''
+    tar --no-same-owner --no-same-permissions -xf ${nodejs.src}
+    mv node-* $out
+  '';
+
   depsToFetches = deps: concatMap depToFetch (attrValues deps);
 
   makeTarball = name: path: stdenv.mkDerivation {
@@ -163,7 +168,8 @@ in rec {
         node ${./mknpmcache.js} ${cacheInput "npm-cache-input.json" lock}
 
         echo 'building node_modules'
-        npm ci
+        npm --nodedir=${nodeSources} ci
+        echo 'patching shebangs'
         patchShebangs ./node_modules/
 
         mkdir $out
