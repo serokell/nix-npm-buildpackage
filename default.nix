@@ -64,7 +64,7 @@ let
     ++ (depsToFetches dependencies);
 
   cacheInput = oFile: iFile:
-    writeText oFile (toJSON (listToAttrs (depToFetch iFile)));
+    writeText oFile (toJSON (depToFetch iFile));
 
   patchShebangs = writeShellScriptBin "patchShebangs.sh" ''
     set -e
