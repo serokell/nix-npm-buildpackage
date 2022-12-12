@@ -176,10 +176,6 @@ in rec {
         mv ./node_modules $out/
         # add npm-cache because npm prune wants to change some pkgs
         mv ./npm-cache $out/
-        # npm wants to write to this cache
-        rm -rf $out/npm-cache/{_cacache/tmp,_locks}
-        ln -s /tmp $out/npm-cache/_cacache/tmp
-        ln -s /tmp $out/npm-cache/_locks
       '';
     } // extraEnvVars);
 
