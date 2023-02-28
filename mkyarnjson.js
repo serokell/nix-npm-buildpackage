@@ -16,12 +16,13 @@ const yarnJson      = lockfile.parse(fs.readFileSync(yarnLockFile, "utf8")).obje
 const integrities   = JSON.parse(fs.readFileSync(intFile))
 
 function splitNameVsn(key) {
-  // foo@vsn or @foo/bar@vsn
-  if (key[0] == "@") {
-    const [name, vsn] = key.slice(1).split("@")
+  // foo@vsn or (baz:)?@foo/bar@vsn*
+  parsed_key = key.match("(.*:)?(.*)")[2]
+  if (parsed_key[0] == "@") {
+    const [name, vsn] = parsed_key.slice(1).split("@")
     return ["@"+name, vsn]
   } else {
-    return key.split("@")
+    return parsed_key.split("@")
   }
 }
 

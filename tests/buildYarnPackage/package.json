@@ -12,6 +12,8 @@
     "left-pad": "git+https://github.com/left-pad/left-pad.git",
     "webpack": "^4.41.2",
     "webpack-cli": "^3.3.10",
-    "solium": "ObsidianLabs/Ethlint"
+    "solium": "ObsidianLabs/Ethlint",
+    "vscode@npm:@codingame/monaco-vscode-api": "1.69.12",
+    "@sinclair/typebox": "0.25.16"
   }
 }
