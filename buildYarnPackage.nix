@@ -67,6 +67,9 @@ in stdenv.mkDerivation (rec {
 
   # TODO
   yarnConfigPhase = ''
+    # this line removes a bug where value of $HOME is set to a non-writable /homeless-shelter dir
+    export HOME=$(pwd)
+    
     cat <<-END >> .yarnrc
     	yarn-offline-mirror "$PWD/yarn-cache"
     	nodedir "${nodejs}"
