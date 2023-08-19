@@ -160,6 +160,9 @@ in rec {
         # do not run the toplevel lifecycle scripts, we only do dependencies
         cp ${toFile "package.json" (builtins.toJSON (info // { scripts = { }; }))} ./package.json
         cp ${toFile "package-lock.json" (builtins.toJSON lock)} ./package-lock.json
+        if [ -d "${src}/deps" ]; then
+          cp -r ${src}/deps .
+        fi
 
         echo 'building npm cache'
         chmod u+w ./package-lock.json
